@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
+import urllib.request
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .config import (
     InstallerManifest,
@@ -46,6 +48,7 @@ class InstallerEngine:
         try:
             self._precheck()
             self._bootstrap_workspace()
+            self._sync_provider_catalog()
             self._sync_repositories()
             self._apply_source_bindings()
             if include_models:
@@ -207,6 +210,90 @@ class InstallerEngine:
 
     def _resolve_repo_mount(self, mount: str) -> Path:
         return (self.workspace / mount).resolve()
+
+    def _catalog_cache_path(self) -> Path:
+        catalog = self.manifest.provider_catalog
+        if not catalog.cache_path:
+            return self.workspace / "provider-catalog.json"
+        return self.workspace / catalog.cache_path
+
+    def _sync_provider_catalog(self) -> None:
+        catalog = self.manifest.provider_catalog
+        if not catalog.enabled:
+            self._record_step("provider_catalog", "skipped", message="Provider catalog disabled in manifest.")
+            return
+
+        details = {"url": catalog.url, "cache_path": str(self._catalog_cache_path())}
+        if self.dry_run:
+            self._record_step(
+                "provider_catalog",
+                "ok",
+                message="Dry-run: catalog fetch skipped",
+                details=details,
+            )
+            return
+
+        if not catalog.url:
+            if catalog.required and not self._catalog_cache_path().exists():
+                self._record_step(
+                    "provider_catalog",
+                    "failed",
+                    message="Catalog required but no provider catalog URL was provided.",
+                    details=details,
+                )
+                raise InstallFailure("provider catalog URL missing")
+            self._record_step("provider_catalog", "warning", message="Catalog URL missing; skipping fetch.", details=details)
+            return
+
+        self._record_step("provider_catalog", "start", message="Downloading provider catalog", details=details)
+        cache_path = self._catalog_cache_path()
+        try:
+            payload = self._fetch_provider_catalog(catalog.url, timeout_seconds=catalog.timeout_seconds)
+            provider_count = 0
+            if isinstance(payload, dict):
+                providers = payload.get("providers")
+                if isinstance(providers, list):
+                    provider_count = len(providers)
+                elif providers is not None:
+                    provider_count = 1
+            elif isinstance(payload, list):
+                provider_count = len(payload)
+            if self.dry_run:
+                details["action"] = "dry-run"
+                details["provider_count"] = provider_count
+                self._record_step("provider_catalog", "ok", message="Dry-run: would persist catalog cache", details=details)
+                return
+
+            if not cache_path.parent.exists():
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            details["provider_count"] = provider_count
+            self._record_step("provider_catalog", "ok", message="Provider catalog synced", details=details)
+        except Exception as exc:  # pragma: no cover
+            if catalog.required and not cache_path.exists():
+                self._record_step(
+                    "provider_catalog",
+                    "failed",
+                    message=f"Failed to fetch provider catalog: {exc}",
+                    details=details,
+                )
+                raise InstallFailure(f"provider catalog unavailable: {exc}") from exc
+            self._record_step(
+                "provider_catalog",
+                "warning",
+                message=f"Using cached provider catalog because fetch failed: {exc}",
+                details=details,
+            )
+
+    @staticmethod
+    def _fetch_provider_catalog(url: str, *, timeout_seconds: int = 6) -> Any:
+        request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "busy-installer/0.1.0"})
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            raw = response.read()
+        return json.loads(raw.decode("utf-8"))
 
     def _prepare_models(self) -> None:
         if not self.manifest.models:

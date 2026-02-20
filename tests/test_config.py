@@ -29,3 +29,31 @@ source_of_truth:
     bindings = list(manifest.canonical_bindings())
     assert len(bindings) == 1
     assert bindings[0].name == "RangeWriter4-a"
+
+
+def test_manifest_loads_provider_catalog_block(tmp_path: Path) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "./workspace"
+provider_catalog:
+  enabled: true
+  required: true
+  url: "https://example.invalid/provider-catalog.json"
+  cache_path: "state/provider-catalog.json"
+  timeout_seconds: 4
+repositories: []
+models: []
+source_of_truth:
+  entries: []
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    assert manifest.provider_catalog.enabled is True
+    assert manifest.provider_catalog.required is True
+    assert manifest.provider_catalog.url == "https://example.invalid/provider-catalog.json"
+    assert manifest.provider_catalog.cache_path == "state/provider-catalog.json"
+    assert manifest.provider_catalog.timeout_seconds == 4

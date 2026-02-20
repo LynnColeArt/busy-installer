@@ -55,6 +55,23 @@ The current required set includes:
 - `RangeWriter4-a`
 - `Blossom`
 
+The manifest also supports an optional provider-catalog block:
+
+```yaml
+provider_catalog:
+  enabled: true
+  required: false
+  url: "https://docs.pillowfort.ai/provider-catalog.json"
+  cache_path: "provider_catalog.json"
+  timeout_seconds: 6
+```
+
+When enabled, the installer will download and cache provider metadata before cloning repositories.
+
+If `required: true`, a missing/failed catalog fetch aborts the install unless a valid local cache exists.
+
+If the request fails and the cache already exists, the engine falls back to cache and continues.
+
 Run the CLI in dry-run mode to preview all steps:
 
 ```bash

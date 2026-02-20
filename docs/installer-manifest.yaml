@@ -51,6 +51,13 @@ source_of_truth:
       adapter_mount: "busy-38-ongoing/vendor/busy-38-blossom"
       required: true
 
+provider_catalog:
+  enabled: true
+  required: false
+  url: "https://docs.pillowfort.ai/provider-catalog.json"
+  cache_path: "provider_catalog.json"
+  timeout_seconds: 6
+
 models:
   - name: qwen3-0.6b
     provider: ollama

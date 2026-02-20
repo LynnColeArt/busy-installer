@@ -86,6 +86,27 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class ProviderCatalogConfig:
+    enabled: bool = False
+    required: bool = False
+    url: str = ""
+    cache_path: str = "provider-catalog.json"
+    timeout_seconds: int = 6
+
+    @classmethod
+    def from_mapping(cls, value: dict[str, Any] | None) -> "ProviderCatalogConfig":
+        if not value:
+            return cls()
+        return cls(
+            enabled=bool(value.get("enabled", False)),
+            required=bool(value.get("required", False)),
+            url=str(value.get("url", "")),
+            cache_path=str(value.get("cache_path", "provider-catalog.json")),
+            timeout_seconds=int(value.get("timeout_seconds", 6)),
+        )
+
+
+@dataclass(frozen=True)
 class WorkflowConfig:
     command: str | None = None
 
@@ -118,6 +139,7 @@ class InstallerManifest:
     repositories: tuple[RepositoryConfig, ...]
     models: tuple[ModelConfig, ...]
     source_of_truth: SourceOfTruthConfig
+    provider_catalog: ProviderCatalogConfig
     onboarding: WorkflowConfig
     smoke: WorkflowConfig
     workspace_path: str | None
@@ -150,8 +172,8 @@ class InstallerManifest:
             repositories=repositories,
             models=models,
             source_of_truth=SourceOfTruthConfig.from_mapping(wrapper),
+            provider_catalog=ProviderCatalogConfig.from_mapping(data.get("provider_catalog")),
             onboarding=WorkflowConfig.from_mapping(workflows.get("onboarding")),
             smoke=WorkflowConfig.from_mapping(workflows.get("smoke")),
             workspace_path=data.get("workspace", {}).get("path") if isinstance(data.get("workspace"), dict) else None,
         )
-
