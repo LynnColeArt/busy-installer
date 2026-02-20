@@ -21,6 +21,11 @@ repositories:
     branch: "main"
     local_path: "busy38-telegram"
     required: false
+  - name: busy-38-doc-ingest
+    url: "https://github.com/LynnColeArt/busy-38-doc-ingest.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-doc-ingest"
+    required: true
   - name: RangeWriter4-a
     url: "https://github.com/LynnColeArt/RangeWriter4-a.git"
     branch: "main"
