@@ -18,6 +18,19 @@ python -m pip install -e .
 pillowfort-installer install --manifest docs/installer-manifest.yaml
 ```
 
+### Required repositories
+
+The installer manifest marks required repos with `required: true`. If a required
+repo fails to sync, the install fails.
+
+The current required set includes:
+- `busy38-core`
+- `busy38-discord`
+- `busy38-telegram`
+- `busy-38-doc-ingest` (mandatory during onboarding/document ingestion setup)
+- `RangeWriter4-a`
+- `Blossom`
+
 Run in dry-run mode to preview all steps:
 
 ```bash
