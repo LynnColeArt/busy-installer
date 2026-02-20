@@ -1,0 +1,14 @@
+[project]
+name = "pillowfort-installer"
+version = "0.1.0"
+description = "Cross-platform installer for Pillowfort/Busy38"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pyyaml"]
+
+[project.scripts]
+pillowfort-installer = "busy_installer.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

@@ -1,0 +1,65 @@
+version: "1.0"
+description: "Pillowfort bootstrap manifest"
+workspace:
+  path: "./pillowfort-workspace"
+  preserve_on_failure: true
+repositories:
+  - name: busy38-core
+    url: "https://github.com/LynnColeArt/Busy.git"
+    branch: "main"
+    local_path: "busy-38-ongoing"
+    required: true
+    post_pull_steps:
+      - "python -m pip install -e ."
+  - name: busy38-discord
+    url: "https://github.com/LynnColeArt/busy38-discord.git"
+    branch: "main"
+    local_path: "busy38-discord"
+    required: false
+  - name: busy38-telegram
+    url: "https://github.com/LynnColeArt/busy38-telegram.git"
+    branch: "main"
+    local_path: "busy38-telegram"
+    required: false
+  - name: RangeWriter4-a
+    url: "https://github.com/LynnColeArt/RangeWriter4-a.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-rangewriter"
+    required: true
+    canonical_only: true
+  - name: Blossom
+    url: "https://github.com/LynnColeArt/Blossom.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-blossom"
+    required: true
+    canonical_only: true
+
+source_of_truth:
+  allow_copy_fallback: false
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "~/projects/RangeWriter4-a"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: true
+    - name: Blossom
+      canonical_path: "~/projects/blossom"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-blossom"
+      required: true
+
+models:
+  - name: qwen3-0.6b
+    provider: ollama
+    target_path: "models/qwen3-0.6b"
+    files:
+      - source: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0_6b-q2_k.gguf"
+        checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+wrappers:
+  open_management_on_complete: true
+  management_url: "http://127.0.0.1:8080"
+
+workflows:
+  onboarding:
+    command: "busy service setup"
+  smoke:
+    command: "busy --help"
