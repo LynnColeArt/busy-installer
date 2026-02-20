@@ -1,7 +1,11 @@
 # Pillowfort Installer
 
-One codebase to install and bootstrap the Pillowfort/Busy38 stack on
+Primary install path for creating a working Pillowfort/Busy38 system on
 Windows, macOS, and Linux.
+
+The platform installer and CLI entrypoints in this repo are the supported
+first-time setup path. Other ad-hoc/manual installation flows are legacy
+or developer-only.
 
 ## Goals
 
