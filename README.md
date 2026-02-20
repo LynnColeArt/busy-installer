@@ -22,6 +22,26 @@ python -m pip install -e .
 pillowfort-installer install --manifest docs/installer-manifest.yaml
 ```
 
+## Linux install (primary supported path)
+
+From a local clone of `busy-installer`, run:
+
+```bash
+cd /path/to/busy-installer
+./busy_installer/platform/linux/launcher.sh
+```
+
+Optional environment controls:
+
+- `BUSY_INSTALL_DIR` (install target directory, default: `~/pillowfort`)
+- `BUSY_INSTALL_MANIFEST` (manifest override path)
+- `BUSY_INSTALL_STRICT_SOURCE=1` (enforce canonical symlink mapping)
+- `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` (permit copied adapter mounts when symlinks unavailable)
+- `MANIFEST_UI_OPEN=1` (open local web UI when available)
+
+The launcher runs the local checkout directly and writes logs to
+`$BUSY_INSTALL_DIR/busy-installer.log`.
+
 ### Required repositories
 
 The installer manifest marks required repos with `required: true`. If a required
@@ -35,7 +55,7 @@ The current required set includes:
 - `RangeWriter4-a`
 - `Blossom`
 
-Run in dry-run mode to preview all steps:
+Run the CLI in dry-run mode to preview all steps:
 
 ```bash
 pillowfort-installer install --manifest docs/installer-manifest.yaml --dry-run
