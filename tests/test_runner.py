@@ -96,3 +96,108 @@ workflows: {}
     assert provider_step is not None
     assert provider_step["status"] == "ok"
     assert provider_step["message"] == "Dry-run: catalog fetch skipped"
+
+
+def test_provider_catalog_validation_warns_on_bad_payload_when_optional(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "."
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  required: false
+  url: "https://example.invalid/provider-catalog.json"
+  cache_path: "state/provider-catalog.json"
+workflows: {}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    engine = InstallerEngine(manifest=manifest, workspace=tmp_path / "workspace")
+
+    monkeypatch.setattr(
+        "busy_installer.core.runner.InstallerEngine._fetch_provider_catalog",
+        lambda *_args, **_kwargs: {"providers": [{"name": "ollama", "models": [{}]}]},
+    )
+
+    engine.run(include_models=False)
+
+    payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
+    provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
+    assert provider_step["status"] == "warning"
+    assert "failed validation" in provider_step["message"]
+
+
+def test_provider_catalog_validation_fails_required_without_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "."
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  required: true
+  url: "https://example.invalid/provider-catalog.json"
+  cache_path: "state/provider-catalog.json"
+workflows: {}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    engine = InstallerEngine(manifest=manifest, workspace=tmp_path / "workspace")
+
+    monkeypatch.setattr(
+        "busy_installer.core.runner.InstallerEngine._fetch_provider_catalog",
+        lambda *_args, **_kwargs: {"providers": [{"name": "ollama", "models": [{}]}]},
+    )
+
+    with pytest.raises(InstallFailure):
+        engine.run(include_models=False)
+
+
+def test_provider_catalog_validation_uses_existing_cache_when_required_and_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "."
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  required: true
+  url: "https://example.invalid/provider-catalog.json"
+  cache_path: "state/provider-catalog.json"
+workflows: {}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    cache_path = workspace / "state" / "provider-catalog.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
+        json.dumps({"providers": [{"name": "cached", "models": ["qwen3-0.6b"]}]}),
+        encoding="utf-8",
+    )
+
+    engine = InstallerEngine(manifest=manifest, workspace=workspace)
+
+    monkeypatch.setattr(
+        "busy_installer.core.runner.InstallerEngine._fetch_provider_catalog",
+        lambda *_args, **_kwargs: {"providers": [{"name": "ollama", "models": [{}]}]},
+    )
+    engine.run(include_models=False)
+
+    payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
+    provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
+    assert provider_step["status"] == "warning"

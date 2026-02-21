@@ -6,7 +6,7 @@ import os
 import subprocess
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, List
 
 from .config import (
     InstallerManifest,
@@ -249,6 +249,33 @@ class InstallerEngine:
         cache_path = self._catalog_cache_path()
         try:
             payload = self._fetch_provider_catalog(catalog.url, timeout_seconds=catalog.timeout_seconds)
+            catalog_errors = self._validate_catalog_payload(payload)
+            if catalog_errors:
+                details["payload_errors"] = catalog_errors
+                if catalog.required and not cache_path.exists():
+                    self._record_step(
+                        "provider_catalog",
+                        "failed",
+                        message="Catalog payload failed validation and no cached catalog is available.",
+                        details=details,
+                    )
+                    raise InstallFailure("provider catalog payload invalid")
+                if cache_path.exists():
+                    self._record_step(
+                        "provider_catalog",
+                        "warning",
+                        message="Catalog payload failed validation; using existing cached catalog.",
+                        details=details,
+                    )
+                else:
+                    self._record_step(
+                        "provider_catalog",
+                        "warning",
+                        message="Catalog payload failed validation; skipping catalog update.",
+                        details=details,
+                    )
+                return
+
             provider_count = 0
             if isinstance(payload, dict):
                 providers = payload.get("providers")
@@ -287,6 +314,73 @@ class InstallerEngine:
                 message=f"Using cached provider catalog because fetch failed: {exc}",
                 details=details,
             )
+
+    @staticmethod
+    def _validate_catalog_payload(payload: Any) -> List[str]:
+        errors: List[str] = []
+
+        if payload is None:
+            return ["provider catalog payload is empty"]
+
+        providers = payload
+        if isinstance(payload, dict):
+            if not payload:
+                return ["provider catalog payload is empty"]
+            if "providers" in payload:
+                providers = payload.get("providers")
+                if "version" in payload and not isinstance(payload.get("version"), (str, int, float)):
+                    errors.append("provider catalog version must be a string or number if present")
+
+        if not isinstance(providers, (dict, list, tuple)):
+            return ["provider catalog providers must be a list or mapping"]
+
+        if isinstance(providers, dict):
+            for provider_name, provider_models in providers.items():
+                if not isinstance(provider_name, str) or not provider_name.strip():
+                    errors.append("provider map key must be a non-empty string")
+                    continue
+                if not isinstance(provider_models, (str, dict, list, tuple, set, type(None))):
+                    errors.append(f"provider '{provider_name}' model definitions must be model ids, objects, or lists")
+            return errors
+
+        for index, entry in enumerate(providers):
+            if isinstance(entry, (str, int, float, bool)):
+                continue
+            if not isinstance(entry, dict):
+                errors.append(f"provider entry #{index} must be an object")
+                continue
+            if not any(
+                key in entry
+                for key in ("id", "name", "provider", "display_name")
+            ):
+                errors.append(f"provider entry #{index} missing a provider identity field (id/name/provider/display_name)")
+                continue
+
+            provider_label = entry.get("id") or entry.get("name") or str(index)
+            models = entry.get("models") if isinstance(entry.get("models"), (list, tuple)) else None
+            if models is None:
+                models = entry.get("model_ids") if isinstance(entry.get("model_ids"), (list, tuple)) else None
+            if models is None:
+                models = entry.get("model") if isinstance(entry.get("model"), (list, tuple)) else None
+            if models is None:
+                continue
+
+            for model_index, model_entry in enumerate(models):
+                if isinstance(model_entry, str):
+                    continue
+                if not isinstance(model_entry, dict):
+                    errors.append(
+                        f"provider '{provider_label}' model #{model_index} must be an id string or object"
+                    )
+                    continue
+                if not any(
+                    key in model_entry for key in ("id", "name", "model")
+                ):
+                    errors.append(
+                        f"provider '{provider_label}' model #{model_index} missing model identity field"
+                    )
+
+        return errors
 
     @staticmethod
     def _fetch_provider_catalog(url: str, *, timeout_seconds: int = 6) -> Any:
