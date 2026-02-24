@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import hashlib
 
 import yaml
 import pytest
@@ -201,3 +202,70 @@ workflows: {}
     payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
     provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
     assert provider_step["status"] == "warning"
+
+
+def test_model_artifact_source_can_copy_from_local_path(tmp_path: Path) -> None:
+    source = tmp_path / "artifacts" / "qwen3.gguf"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"model-bytes")
+    checksum = hashlib.sha256(b"model-bytes").hexdigest()
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models:
+  - name: qwen3-0.6b
+    provider: local
+    target_path: "models/qwen3-0.6b"
+    files:
+      - source: "{source}"
+        checksum: "sha256:{checksum}"
+source_of_truth:
+  entries: []
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    engine = InstallerEngine(manifest=manifest, workspace=tmp_path / "workspace")
+    engine.run(include_models=True)
+
+    staged = tmp_path / "workspace" / "models" / "qwen3-0.6b" / "qwen3.gguf"
+    assert staged.exists()
+    assert staged.read_bytes() == b"model-bytes"
+
+
+def test_model_artifact_rejects_bad_checksum(tmp_path: Path) -> None:
+    source = tmp_path / "artifacts" / "bad.bin"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"bad-model-bytes")
+
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models:
+  - name: bad
+    provider: local
+    target_path: "models/bad"
+    files:
+      - source: "{source}"
+        checksum: "sha256:111111111111111111111111111111111111111111111111111111111111111111"
+source_of_truth:
+  entries: []
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    engine = InstallerEngine(manifest=manifest, workspace=tmp_path / "workspace")
+
+    with pytest.raises(InstallFailure):
+        engine.run(include_models=True)

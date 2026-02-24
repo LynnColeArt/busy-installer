@@ -3,8 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+import string
+import urllib.parse
 import urllib.request
+import shlex
 from pathlib import Path
 from typing import Any, Callable, List
 
@@ -123,7 +127,7 @@ class InstallerEngine:
                     if step.startswith("python ") and self.dry_run:
                         self._record_step("repo", "info", message=f"Would run post-pull: {step}", details=details)
                     else:
-                        self._run(step.split(), target)
+                        self._run(self._split_command(step), target)
             self._record_step("repo", "ok", message=f"Synced {repo.name}", details=details)
         except Exception as exc:
             if repo.required:
@@ -408,13 +412,111 @@ class InstallerEngine:
 
     def _fetch_artifact(self, artifact: ModelArtifact, target_dir: Path) -> None:
         normalized = target_dir / Path(artifact.source).name
-        if artifact.checksum:
-            artifact_hash = hashlib.sha256(str(artifact.source).encode("utf-8")).hexdigest()[:8]
-            marker = target_dir / f".{normalized.name}.checksum"
+        checksum = self._parse_checksum(artifact.checksum)
+        marker = target_dir / f".{normalized.name}.checksum"
+        if checksum is None and artifact.checksum:
+            self._record_step(
+                "model",
+                "warning",
+                message=(
+                    f"Unrecognized checksum format for '{artifact.source}'; "
+                    f"continuing without checksum validation."
+                ),
+            )
+
+        if normalized.exists():
+            if checksum is None:
+                self._record_step("model", "info", message=f"Model artifact already present: {normalized.name}")
+                return
             if marker.exists() and marker.read_text(encoding="utf-8").strip() == artifact.checksum:
                 self._record_step("model", "info", message=f"Model artifact already cached: {normalized.name}")
                 return
-            marker.write_text(f"{artifact.checksum}\\n{artifact_hash}\\n", encoding="utf-8")
+            current = self._compute_sha256(normalized)
+            if current == checksum[1]:
+                marker.write_text(f"{artifact.checksum}\\n", encoding="utf-8")
+                self._record_step("model", "info", message=f"Model artifact already cached: {normalized.name}")
+                return
+            self._record_step("model", "warning", message=f"Model artifact changed; refreshing cached copy: {normalized.name}")
+
+        self._fetch_artifact_source(artifact.source, normalized)
+        if checksum is not None:
+            self._assert_checksum(normalized, checksum)
+            marker.write_text(f"{artifact.checksum}\\n", encoding="utf-8")
+
+    @staticmethod
+    def _split_command(command: str) -> list[str]:
+        return shlex.split(command)
+
+    @staticmethod
+    def _parse_checksum(checksum: str | None) -> tuple[str, str] | None:
+        if not checksum:
+            return None
+        parts = checksum.split(":", 1)
+        if len(parts) != 2:
+            return None
+        algorithm = parts[0].strip().lower()
+        value = parts[1].strip()
+        if not value:
+            return None
+        if not all(char in string.hexdigits for char in value):
+            return None
+        if value == "0" * len(value):
+            return None
+        if algorithm in {"sha256", "sha-256"} and len(value) == 64:
+            return ("sha256", value.lower())
+        return None
+
+    @staticmethod
+    def _compute_sha256(path: Path) -> str:
+        h = hashlib.sha256()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _assert_checksum(self, path: Path, checksum: tuple[str, str]) -> None:
+        algorithm, expected = checksum
+        if algorithm != "sha256":
+            raise InstallFailure(f"unsupported checksum algorithm: {algorithm}")
+        actual = self._compute_sha256(path)
+        if actual != expected:
+            raise InstallFailure(f"checksum mismatch for {path.name}: expected {expected}, got {actual}")
+
+    @staticmethod
+    def _is_remote_artifact(source: str) -> bool:
+        parsed = urllib.parse.urlparse(source)
+        return parsed.scheme in {"http", "https"}
+
+    def _fetch_artifact_source(self, source: str, target: Path) -> None:
+        if self._is_remote_artifact(source):
+            self._download_remote_artifact(source, target)
+            return
+        source_path = Path(source).expanduser()
+        if not source_path.is_absolute():
+            source_path = (self.manifest.path.parent / source_path).resolve()
+        if not source_path.exists():
+            raise InstallFailure(f"model artifact source missing: {source_path}")
+        if source_path.resolve() == target.resolve():
+            raise InstallFailure(f"model artifact source equals destination: {source_path}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target)
+
+    @staticmethod
+    def _download_remote_artifact(source: str, target: Path) -> None:
+        request = urllib.request.Request(
+            source,
+            headers={
+                "Accept": "application/octet-stream",
+                "User-Agent": "busy-installer/0.1.0",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            status = getattr(response, "status", 200)
+            if status and status != 200:
+                raise InstallFailure(f"provider returned HTTP {status} for {source}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("wb") as handle:
+                shutil.copyfileobj(response, handle)
 
     def _run_onboarding(self) -> None:
         if not self.manifest.onboarding.command:
@@ -424,7 +526,7 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("onboarding", "ok", message=f"Would run command: {self.manifest.onboarding.command}")
             return
-        self._run(self.manifest.onboarding.command.split(), self.workspace)
+        self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
         self._record_step("onboarding", "ok", message="Onboarding command completed")
 
     def _run_smoke(self) -> None:
@@ -435,7 +537,7 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("smoke", "ok", message=f"Would run command: {self.manifest.smoke.command}")
             return
-        self._run(self.manifest.smoke.command.split(), self.workspace)
+        self._run(self._split_command(self.manifest.smoke.command), self.workspace)
         self._record_step("smoke", "ok", message="Smoke check completed")
 
     def _finalize(self) -> None:
