@@ -34,13 +34,48 @@ cd /path/to/busy-installer
 Optional environment controls:
 
 - `BUSY_INSTALL_DIR` (install target directory, default: `~/pillowfort`)
-- `BUSY_INSTALL_MANIFEST` (manifest override path)
+- `BUSY_INSTALL_MANIFEST` (manifest override path; default: `docs/installer-manifest.yaml`)
 - `BUSY_INSTALL_STRICT_SOURCE=1` (enforce canonical symlink mapping)
 - `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` (permit copied adapter mounts when symlinks unavailable)
 - `MANIFEST_UI_OPEN=1` (open local web UI when available)
+- `BUSY_INSTALL_MANAGEMENT_URL` (override `management_url` from manifest `wrappers`)
+- `BUSY_INSTALL_SKIP_MODELS=1` (skip model staging during install/re-install)
 
 The launcher runs the local checkout directly and writes logs to
 `$BUSY_INSTALL_DIR/busy-installer.log`.
+
+The launcher also accepts wrapper policy defaults from manifest:
+
+```yaml
+wrappers:
+  open_management_on_complete: true
+  management_url: "http://127.0.0.1:8080"
+```
+
+`MANIFEST_UI_OPEN` and `BUSY_INSTALL_MANAGEMENT_URL` override those manifest values.
+
+## macOS and Windows one-click
+
+Run the platform-native entrypoints for a wrapped launch flow:
+
+```bash
+./busy_installer/platform/macos/launcher.command
+```
+
+```powershell
+./busy_installer/platform/windows/launcher.ps1
+```
+
+Both shell entrypoints route through `busy_installer.platform.launcher` so behavior is identical:
+
+- manifest-driven config and workspace resolution
+- command pass-through support (`install`, `repair`, `status`, `clean`, and passthrough args)
+- one-click wrapped management URL open when manifest/ENV policy enables it
+
+```bash
+# equivalent explicit mode from the installer repo root
+python -m busy_installer.platform.launcher install
+```
 
 ### Required repositories
 

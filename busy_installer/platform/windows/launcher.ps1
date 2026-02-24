@@ -1,9 +1,16 @@
 $ErrorActionPreference = "Stop"
 
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Workspace = (Resolve-Path "$Root\..").Path
-$Manifest = Join-Path $Root "..\..\docs\installer-manifest.yaml" | Resolve-Path
+$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = Resolve-Path "$ScriptPath\..\..\.."
 
-python -m busy_installer.cli --manifest $Manifest --workspace $Workspace install $args
+$python = (Get-Command python3 -ErrorAction SilentlyContinue).Source
+if (-not $python) {
+  $python = (Get-Command python -ErrorAction SilentlyContinue).Source
+}
 
-Start-Process "http://127.0.0.1:8080"
+if (-not $python) {
+  throw "Python 3 not found. Install Python 3.10+ and rerun."
+}
+
+$env:PYTHONPATH = "$($Root.Path)"
+& $python -m busy_installer.platform.launcher @args
