@@ -61,6 +61,15 @@ class InstallState:
     def fail(self, name: str, exc: BaseException) -> None:
         self.record(name=name, status="failed", message=str(exc), details={"type": type(exc).__name__})
 
+    def last_failed_step_name(self, exclude_install: bool = False) -> str | None:
+        for entry in reversed(self.steps):
+            if entry.status != "failed":
+                continue
+            if exclude_install and entry.name == "install":
+                continue
+            return entry.name
+        return None
+
     @classmethod
     def load(cls, path: Path) -> "InstallState":
         state = cls(path)

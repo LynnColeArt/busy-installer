@@ -269,3 +269,75 @@ workflows: {{}}
 
     with pytest.raises(InstallFailure):
         engine.run(include_models=True)
+
+
+def test_repair_resumes_from_failed_phase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  entries: []
+workflows:
+  onboarding:
+    command: ""
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+
+    engine = InstallerEngine(manifest=manifest, workspace=tmp_path / "workspace")
+    phase_calls: list[str] = []
+    state = {"fail_onboarding_once": True}
+
+    orig_precheck = engine._precheck
+    orig_workspace = engine._bootstrap_workspace
+    orig_onboarding = engine._run_onboarding
+    orig_smoke = engine._run_smoke
+
+    def _wrapped_precheck() -> None:
+        phase_calls.append("precheck")
+        orig_precheck()
+
+    def _wrapped_workspace() -> None:
+        phase_calls.append("workspace")
+        orig_workspace()
+
+    def _wrapped_onboarding() -> None:
+        phase_calls.append("onboarding")
+        if state["fail_onboarding_once"]:
+            state["fail_onboarding_once"] = False
+            raise InstallFailure("simulated onboarding failure")
+        orig_onboarding()
+
+    def _wrapped_smoke() -> None:
+        phase_calls.append("smoke")
+        orig_smoke()
+
+    monkeypatch.setattr(engine, "_precheck", _wrapped_precheck)
+    monkeypatch.setattr(engine, "_bootstrap_workspace", _wrapped_workspace)
+    monkeypatch.setattr(engine, "_run_onboarding", _wrapped_onboarding)
+    monkeypatch.setattr(engine, "_run_smoke", _wrapped_smoke)
+
+    with pytest.raises(InstallFailure):
+        engine.run()
+
+    assert phase_calls.count("precheck") == 1
+    assert phase_calls.count("workspace") == 1
+    assert phase_calls.count("onboarding") == 1
+    assert phase_calls.count("smoke") == 0
+
+    engine.run(resume=True)
+
+    assert phase_calls.count("precheck") == 1
+    assert phase_calls.count("workspace") == 1
+    assert phase_calls.count("onboarding") == 2
+    assert phase_calls.count("smoke") == 1
+
+    payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
+    assert payload["steps"][-1]["name"] == "finalize"
+    assert payload["steps"][-1]["status"] == "ok"

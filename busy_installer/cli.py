@@ -57,8 +57,11 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
 
 def _cmd_repair(args: argparse.Namespace) -> int:
-    # Currently same behavior as install; kept for interface symmetry.
-    return _cmd_install(args)
+    # Repair resumes from the most recent failed phase when possible.
+    engine = _build_engine(args)
+    engine.run(resume=True, include_models=not args.skip_models)
+    print(f"Repair completed. state={engine.state.file_path}")
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:

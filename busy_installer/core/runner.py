@@ -48,21 +48,67 @@ class InstallerEngine:
         self.state = InstallState.load(state_path or self.workspace)
         self.state.set_meta(manifest=self.manifest.path.name, workspace=str(self.workspace))
 
-    def run(self, include_models: bool = True) -> None:
+    def run(self, include_models: bool = True, *, resume: bool = False) -> None:
+        phase_order = [
+            "precheck",
+            "workspace",
+            "provider_catalog",
+            "repo",
+            "canonical",
+            "models",
+            "onboarding",
+            "smoke",
+            "finalize",
+        ]
+
         try:
-            self._precheck()
-            self._bootstrap_workspace()
-            self._sync_provider_catalog()
-            self._sync_repositories()
-            self._apply_source_bindings()
+            resume_from = self._resolve_resume_start(resume)
+            start_index = phase_order.index(resume_from) if resume_from in phase_order else 0
+
+            if resume:
+                self._record_step(
+                    "install",
+                    "resume",
+                    message=f"Resuming install from phase '{resume_from or 'precheck'}'",
+                    details={"requested": True, "from_phase": resume_from or "precheck"},
+                )
+
+            self._run_phase("precheck", self._precheck, start=start_index == 0)
+            self._run_phase("workspace", self._bootstrap_workspace, start=start_index <= 1)
+            self._run_phase("provider_catalog", self._sync_provider_catalog, start=start_index <= 2)
+            self._run_phase("repo", self._sync_repositories, start=start_index <= 3)
+            self._run_phase("canonical", self._apply_source_bindings, start=start_index <= 4)
             if include_models:
-                self._prepare_models()
-            self._run_onboarding()
-            self._run_smoke()
-            self._finalize()
+                self._run_phase("models", self._prepare_models, start=start_index <= 5)
+            self._run_phase("onboarding", self._run_onboarding, start=start_index <= 6)
+            self._run_phase("smoke", self._run_smoke, start=start_index <= 7)
+            self._run_phase("finalize", self._finalize, start=start_index <= 8)
         except Exception as exc:  # pragma: no cover - broad surfacing
-            self.state.fail("install", exc)
+            if self.state.last_failed_step_name(exclude_install=True) is None:
+                self.state.fail("install", exc)
             raise
+
+    def _run_phase(self, phase_name: str, phase: Callable[[], None], *, start: bool) -> None:
+        if not start:
+            return
+        try:
+            phase()
+        except Exception as exc:
+            self._record_step(
+                phase_name,
+                "failed",
+                message=f"Phase '{phase_name}' failed: {exc}",
+                details={"type": type(exc).__name__},
+            )
+            raise
+
+    def _resolve_resume_start(self, resume: bool) -> str:
+        if not resume:
+            return "precheck"
+        failed = self.state.last_failed_step_name(exclude_install=True)
+        if failed is None:
+            return "precheck"
+        return failed
 
     def _default_runner(self, command: list[str], cwd: Path) -> int:
         if self.dry_run:
@@ -399,7 +445,7 @@ class InstallerEngine:
             return
         for model in self.manifest.models:
             raw_target = self.workspace / model.target_path
-            target = raw_target if not raw_target.suffix else raw_target.parent
+            target = self._model_target_dir(raw_target)
             details = {"path": str(raw_target), "provider": model.provider}
             self._record_step("model", "start", message=f"Preparing model {model.name}", details=details)
             if self.dry_run:
@@ -415,13 +461,8 @@ class InstallerEngine:
         checksum = self._parse_checksum(artifact.checksum)
         marker = target_dir / f".{normalized.name}.checksum"
         if checksum is None and artifact.checksum:
-            self._record_step(
-                "model",
-                "warning",
-                message=(
-                    f"Unrecognized checksum format for '{artifact.source}'; "
-                    f"continuing without checksum validation."
-                ),
+            raise InstallFailure(
+                f"Malformed checksum for '{artifact.source}': {artifact.checksum}; expected sha256:<hex_64>"
             )
 
         if normalized.exists():
@@ -446,6 +487,15 @@ class InstallerEngine:
     @staticmethod
     def _split_command(command: str) -> list[str]:
         return shlex.split(command)
+
+    @staticmethod
+    def _model_target_dir(raw_target: Path) -> Path:
+        # Model target paths are directory roots; treat common artifact file extensions
+        # as explicit file targets only when clearly specified.
+        known_file_suffixes = {".gguf", ".ggml", ".safetensors", ".safetensor", ".bin", ".pt", ".pth", ".onnx"}
+        if raw_target.suffix.lower() in known_file_suffixes:
+            return raw_target.parent
+        return raw_target
 
     @staticmethod
     def _parse_checksum(checksum: str | None) -> tuple[str, str] | None:
