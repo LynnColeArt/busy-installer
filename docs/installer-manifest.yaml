@@ -21,6 +21,11 @@ repositories:
     branch: "main"
     local_path: "busy38-telegram"
     required: false
+  - name: busy38-gticket
+    url: "https://github.com/LynnColeArt/busy38-gticket.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-gticket"
+    required: true
   - name: busy-38-doc-ingest
     url: "https://github.com/LynnColeArt/busy-38-doc-ingest.git"
     branch: "main"
@@ -49,6 +54,10 @@ source_of_truth:
     - name: Blossom
       canonical_path: "~/projects/blossom"
       adapter_mount: "busy-38-ongoing/vendor/busy-38-blossom"
+      required: true
+    - name: GTicket
+      canonical_path: "~/projects/busy-38-gticket"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-gticket"
       required: true
 
 provider_catalog:
