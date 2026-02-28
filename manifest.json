@@ -1,0 +1,13 @@
+{
+  "name": "busy-installer",
+  "version": "0.1.0",
+  "description": "Busy installer orchestration plugin for model bootstrap and prerequisite setup.",
+  "license": "GPL-3.0-only",
+  "type": "toolkit",
+  "permissions": [
+    "installer:run",
+    "installer:configure"
+  ],
+  "toolkit_path": "busy_installer",
+  "entry_point": "busy_installer.cli"
+}
