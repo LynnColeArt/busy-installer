@@ -1,0 +1,46 @@
+{
+  "type": "plugin-ui",
+  "version": "1",
+  "summary": "Render installer status, bootstrap controls, and setup checkpoints.",
+  "required_api": [
+    "/api/plugins/{plugin_id}/ui/debug"
+  ],
+  "plugin_identity": {
+    "id": "busy-installer",
+    "aliases": ["busy-installer", "installer"]
+  },
+  "sections": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "kind": "docs",
+      "scope": "viewer",
+      "visibility": "default-open",
+      "fields": [
+        {
+          "name": "overview",
+          "label": "Overview",
+          "type": "textarea",
+          "kind": "readonly",
+          "default": "Guides and automates bootstrap actions required to initialize the local runtime."
+        }
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "title": "Diagnostics",
+      "kind": "form",
+      "scope": "admin",
+      "visibility": "default-open",
+      "actions": [
+        {
+          "id": "debug",
+          "label": "Run plugin debug",
+          "method": "GET",
+          "description": "Execute the plugin-owned debug handler.",
+          "entry_point": "actions:handle_debug"
+        }
+      ]
+    }
+  ]
+}
