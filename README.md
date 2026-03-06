@@ -22,6 +22,11 @@ python -m pip install -e .
 pillowfort-installer install --manifest docs/installer-manifest.yaml
 ```
 
+## Branching
+
+- Default branch is `main`.
+- Rename-prep and maintenance PRs should target `main` instead of the historical `master` branch.
+
 ## Linux install (primary supported path)
 
 From a local clone of `busy-installer`, run:
