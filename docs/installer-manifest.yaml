@@ -26,19 +26,19 @@ repositories:
     branch: "main"
     local_path: "busy-38-ongoing/vendor/busy-38-gticket"
     required: true
-  - name: busy-38-doc-ingest
-    url: "https://github.com/LynnColeArt/busy-38-doc-ingest.git"
+  - name: busy38-doc-ingest
+    url: "https://github.com/LynnColeArt/busy38-doc-ingest.git"
     branch: "main"
     local_path: "busy-38-ongoing/vendor/busy-38-doc-ingest"
     required: true
   - name: RangeWriter4-a
-    url: "https://github.com/LynnColeArt/RangeWriter4-a.git"
+    url: "https://github.com/LynnColeArt/rangewriter.git"
     branch: "main"
     local_path: "busy-38-ongoing/vendor/busy-38-rangewriter"
     required: true
     canonical_only: true
   - name: Blossom
-    url: "https://github.com/LynnColeArt/Blossom.git"
+    url: "https://github.com/LynnColeArt/blossom.git"
     branch: "main"
     local_path: "busy-38-ongoing/vendor/busy-38-blossom"
     required: true
@@ -82,6 +82,6 @@ wrappers:
 
 workflows:
   onboarding:
-    command: "python busy-38-ongoing/busy service setup"
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093"
   smoke:
-    command: "python busy-38-ongoing/busy --help"
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093 --check-only"

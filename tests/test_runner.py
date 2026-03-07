@@ -1,6 +1,7 @@
-import json
-from pathlib import Path
 import hashlib
+import json
+import os
+from pathlib import Path
 
 import yaml
 import pytest
@@ -341,3 +342,45 @@ workflows:
     payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
     assert payload["steps"][-1]["name"] == "finalize"
     assert payload["steps"][-1]["status"] == "ok"
+
+
+def test_workflow_commands_prepend_installer_repo_root_to_pythonpath(tmp_path: Path) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  entries: []
+workflows:
+  onboarding:
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --check-only"
+  smoke:
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --check-only"
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    observed_pythonpaths: list[str | None] = []
+    original_pythonpath = os.environ.get("PYTHONPATH")
+
+    def fake_runner(command: list[str], cwd: Path) -> int:
+        observed_pythonpaths.append(os.environ.get("PYTHONPATH"))
+        return 0
+
+    engine = InstallerEngine(
+        manifest=manifest,
+        workspace=tmp_path / "workspace",
+        command_runner=fake_runner,
+    )
+
+    engine.run(include_models=False)
+
+    installer_root = str(Path(__file__).resolve().parents[1])
+    assert len(observed_pythonpaths) == 2
+    assert all(value is not None for value in observed_pythonpaths)
+    assert all(value.split(os.pathsep)[0] == installer_root for value in observed_pythonpaths if value)
+    assert os.environ.get("PYTHONPATH") == original_pythonpath
