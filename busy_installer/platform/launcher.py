@@ -141,6 +141,9 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
     while index < len(args):
         token = args[index]
 
+        if token == "--":
+            passthrough.extend(args[index:])
+            break
         if token == "--manifest":
             if index + 1 >= len(args):
                 raise SystemExit("argument --manifest: expected one argument")
