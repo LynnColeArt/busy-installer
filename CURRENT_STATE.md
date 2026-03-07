@@ -56,6 +56,8 @@
     launcher itself,
   - relative manifest paths are canonicalized before wrapper-default reads and
     child installer execution,
+  - manifest-owned wrapper booleans are parsed literally so quoted values like
+    `"false"` fail closed instead of opening browser surfaces by truthiness,
   - launcher-owned flags are stripped from passthrough before the installer
     command is built,
   - launcher logs, onboarding-state reads, browser routing, and spawned
