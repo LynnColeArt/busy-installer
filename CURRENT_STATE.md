@@ -34,9 +34,11 @@
   - the onboarding HTTP surface remains reachable after launcher exit
   - repair opens management at `http://127.0.0.1:8031` once onboarding state is
     `ACTIVE`
-- Validation also confirmed one remaining policy gap:
-  - required source-of-truth entries still warn when the adapter path is not a
-    canonical symlink, instead of failing closed unless copy fallback is
-    explicitly enabled
+- Required source-of-truth bindings now enforce the documented symlink-first
+  policy:
+  - required adapter mounts are remounted to canonical symlinks during install
+    and repair
+  - copied adapter mounts are accepted only when copy fallback is explicitly
+    enabled
 - Browser-open failures remain visible in `busy-installer.log` but no longer
   convert a successful install/repair into a failed launcher exit.

@@ -242,44 +242,58 @@ class InstallerEngine:
                 self._record_step("canonical", "warning", message=msg, details=details)
                 return
 
-            self._ensure_adapter_path(adapter, canonical)
-            if adapter.is_symlink():
-                if adapter.resolve() == canonical:
-                    self._record_step("canonical", "ok", message=f"Canonical symlink active for {binding.name}", details=details)
-                    return
-                if not self.fallback_allowed or self.strict_source:
-                    raise InstallFailure(f"adapter points to unexpected source: {adapter.resolve()}")
-                self._record_step("canonical", "warning", message="Symlink target mismatch; keeping explicit state", details=details)
+            mount_state = self._ensure_adapter_path(adapter, canonical)
+            if mount_state == "copy":
+                self._record_step("canonical", "ok", message=f"Accepting adapter copy for {binding.name}", details=details)
                 return
-
-            if not self.fallback_allowed:
-                if self.strict_source:
-                    raise InstallFailure(
-                        f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled"
-                    )
+            if mount_state == "canonical_target":
+                self._record_step("canonical", "ok", message=f"Canonical source active for {binding.name}", details=details)
+                return
+            if mount_state == "would_mount_symlink":
                 self._record_step(
                     "canonical",
-                    "warning",
-                    message="Adapter is not symlinked for source-of-truth mapping",
+                    "ok",
+                    message=f"Dry-run: would mount canonical symlink for {binding.name}",
                     details=details,
                 )
                 return
-
-            self._record_step("canonical", "ok", message=f"Accepting adapter copy for {binding.name}", details=details)
+            if adapter.is_symlink() and adapter.resolve() == canonical:
+                self._record_step("canonical", "ok", message=f"Canonical symlink active for {binding.name}", details=details)
+                return
+            raise InstallFailure(f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled")
         except Exception as exc:
             if binding.required or self.strict_source:
                 raise
             self._record_step("canonical", "warning", message=str(exc), details=details)
 
-    def _ensure_adapter_path(self, adapter: Path, canonical: Path) -> None:
-        if adapter.exists():
+    def _ensure_adapter_path(self, adapter: Path, canonical: Path) -> str:
+        if adapter == canonical:
+            return "canonical_target"
+        if adapter.is_symlink() and adapter.resolve() == canonical:
+            return "symlink"
+        if not adapter.exists():
             if self.dry_run:
-                return
-            if adapter.is_symlink() or adapter.is_file() or adapter.is_dir():
-                return
-            return
+                return "would_mount_symlink"
+            self._create_canonical_symlink(adapter, canonical)
+            return "symlink"
+        if self.fallback_allowed and not adapter.is_symlink():
+            return "copy"
         if self.dry_run:
+            return "would_mount_symlink"
+        self._replace_with_canonical_symlink(adapter, canonical)
+        return "symlink"
+
+    @staticmethod
+    def _remove_adapter_path(adapter: Path) -> None:
+        if adapter.is_symlink() or adapter.is_file():
+            adapter.unlink()
             return
+        if adapter.is_dir():
+            shutil.rmtree(adapter)
+            return
+        adapter.unlink(missing_ok=True)
+
+    def _create_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
         adapter.parent.mkdir(parents=True, exist_ok=True)
         try:
             adapter.symlink_to(canonical)
@@ -288,6 +302,13 @@ class InstallerEngine:
                 adapter.mkdir(parents=True, exist_ok=True)
             else:
                 raise
+
+    def _replace_with_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
+        # In symlink-first mode, workspace adapter copies are staging artifacts.
+        # Replace them explicitly so a successful install means the canonical
+        # mount is actually active rather than just warned about.
+        self._remove_adapter_path(adapter)
+        self._create_canonical_symlink(adapter, canonical)
 
     def _resolve_repo_mount(self, mount: str) -> Path:
         return (self.workspace / mount).resolve()

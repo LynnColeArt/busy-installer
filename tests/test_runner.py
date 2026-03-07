@@ -63,6 +63,117 @@ workflows: {}
         engine.run(include_models=False)
 
 
+def test_required_canonical_binding_replaces_adapter_copy_with_symlink(tmp_path: Path) -> None:
+    canonical = tmp_path / "canonical-rw"
+    canonical.mkdir(parents=True)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  allow_copy_fallback: false
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "{canonical}"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: true
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    adapter = workspace / "busy-38-ongoing" / "vendor" / "busy-38-rangewriter"
+    adapter.mkdir(parents=True, exist_ok=True)
+    (adapter / "copied.txt").write_text("copy\n", encoding="utf-8")
+
+    engine = InstallerEngine(manifest=manifest, workspace=workspace)
+    engine.run(include_models=False)
+
+    assert adapter.is_symlink()
+    assert adapter.resolve() == canonical.resolve()
+
+
+def test_explicit_copy_fallback_keeps_adapter_copy(tmp_path: Path) -> None:
+    canonical = tmp_path / "canonical-rw"
+    canonical.mkdir(parents=True)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  allow_copy_fallback: true
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "{canonical}"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: true
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    adapter = workspace / "busy-38-ongoing" / "vendor" / "busy-38-rangewriter"
+    adapter.mkdir(parents=True, exist_ok=True)
+    marker = adapter / "copied.txt"
+    marker.write_text("copy\n", encoding="utf-8")
+
+    engine = InstallerEngine(
+        manifest=manifest,
+        workspace=workspace,
+        fallback_allowed=True,
+    )
+    engine.run(include_models=False)
+
+    assert adapter.is_dir()
+    assert not adapter.is_symlink()
+    assert marker.read_text(encoding="utf-8") == "copy\n"
+
+
+def test_canonical_binding_accepts_mount_that_already_resolves_to_canonical(tmp_path: Path) -> None:
+    canonical = tmp_path / "canonical-rw"
+    canonical.mkdir(parents=True)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  allow_copy_fallback: false
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "{canonical}"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: true
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    adapter_mount = workspace / "busy-38-ongoing" / "vendor" / "busy-38-rangewriter"
+    adapter_mount.parent.mkdir(parents=True, exist_ok=True)
+    adapter_mount.symlink_to(canonical)
+
+    engine = InstallerEngine(manifest=manifest, workspace=workspace)
+    engine.run(include_models=False)
+
+    assert adapter_mount.is_symlink()
+    assert adapter_mount.resolve() == canonical.resolve()
+
+
 def test_provider_catalog_step_honors_dry_run(tmp_path: Path) -> None:
     manifest_file = tmp_path / "manifest.yaml"
     manifest_file.write_text(

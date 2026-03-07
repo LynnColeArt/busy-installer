@@ -85,6 +85,14 @@ editable install first. The onboarding bootstrap command launches the vendored
 web app as a detached background process, then returns only after the local
 HTTP surface is reachable.
 
+Source-of-truth enforcement is now symlink-first by default:
+
+- required source bindings are remounted to canonical symlinks during install
+  and repair,
+- copied adapter mounts are only accepted when
+  `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` or the equivalent manifest policy is
+  explicitly enabled.
+
 ## macOS and Windows one-click
 
 Run the platform-native entrypoints for a wrapped launch flow:
@@ -115,8 +123,7 @@ repo fails to sync, the install fails.
 
 The current required set includes:
 - `busy38-core`
-- `busy38-discord`
-- `busy38-telegram`
+- `busy38-gticket`
 - `busy38-doc-ingest` (mandatory during onboarding/document ingestion setup; adapter mount remains `vendor/busy-38-doc-ingest`)
 - `RangeWriter4-a`
 - `Blossom`
