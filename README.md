@@ -54,6 +54,8 @@ Launcher-owned CLI flags are authoritative when provided:
 
 - `--workspace` overrides `BUSY_INSTALL_DIR`
 - `--manifest` overrides `BUSY_INSTALL_MANIFEST`
+- relative `--manifest` paths are resolved once up front and reused for both
+  launcher reads and the spawned installer process
 - launcher-owned flags are parsed once and removed from passthrough so the
   spawned installer command carries one authoritative workspace/manifest value
 

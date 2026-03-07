@@ -100,6 +100,18 @@ def test_parse_config_cli_workspace_overrides_environment(tmp_path: Path, monkey
     assert config.passthrough == ("alpha",)
 
 
+def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "manifest.yaml"
+    _write_manifest(manifest)
+    monkeypatch.chdir(tmp_path)
+
+    config = parse_config(["install", "--manifest", "manifest.yaml"])
+    command = build_installer_command(config)
+
+    assert config.manifest == manifest.resolve()
+    assert command[command.index("--manifest") + 1] == str(manifest.resolve())
+
+
 def test_build_installer_command_does_not_duplicate_launcher_owned_flags(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "docs" / "installer-manifest.yaml"
     workspace = tmp_path / "actual"

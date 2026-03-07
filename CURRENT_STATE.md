@@ -54,6 +54,8 @@
 - Launcher workspace/manifest resolution is now single-source and explicit:
   - CLI `--workspace` / `--manifest` override environment defaults inside the
     launcher itself,
+  - relative manifest paths are canonicalized before wrapper-default reads and
+    child installer execution,
   - launcher-owned flags are stripped from passthrough before the installer
     command is built,
   - launcher logs, onboarding-state reads, browser routing, and spawned
