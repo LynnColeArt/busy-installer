@@ -61,6 +61,9 @@ Launcher-owned CLI flags are authoritative when provided:
   launcher reads and the spawned installer process
 - launcher-owned flags are parsed once and removed from passthrough so the
   spawned installer command carries one authoritative workspace/manifest value
+- once positional passthrough begins before command authority binds, a later
+  valid wrapper subcommand now fails visibly instead of being reinterpreted as
+  authoritative launcher intent
 - duplicate launcher-owned `--workspace` / `--manifest` assignments now fail
   visibly instead of silently last-winning authority
 - multiple wrapper subcommands now fail visibly instead of leaking extra
