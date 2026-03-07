@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import json
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -100,21 +101,35 @@ class LauncherConfig:
     passthrough: tuple[str, ...]
 
 
+def _parse_launcher_passthrough(args: list[str]) -> tuple[argparse.Namespace, tuple[str, ...]]:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--manifest")
+    parser.add_argument("--workspace")
+    parser.add_argument("--skip-models", action="store_true", default=False)
+    parser.add_argument("--strict-source", action="store_true", default=False)
+    parser.add_argument("--allow-copy-fallback", action="store_true", default=False)
+    return parser.parse_known_args(args)
+
+
 def parse_config(argv: list[str] | None = None) -> LauncherConfig:
     args = list(argv or [])
     if not args or args[0].startswith("-"):
         command = "install"
-        passthrough = tuple(args)
+        raw_passthrough = args
     else:
         command = args[0]
-        passthrough = tuple(args[1:])
+        raw_passthrough = args[1:]
 
-    manifest = Path(os.getenv("BUSY_INSTALL_MANIFEST", str(_default_manifest_path()))).expanduser()
+    known_args, passthrough = _parse_launcher_passthrough(raw_passthrough)
+
+    manifest_value = known_args.manifest or os.getenv("BUSY_INSTALL_MANIFEST", str(_default_manifest_path()))
+    manifest = Path(manifest_value).expanduser()
     manifest_open, manifest_onboarding_url, manifest_management_url = _read_manifest_wrappers(manifest)
-    workspace = Path(os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")).expanduser().resolve()
-    skip_models = _read_bool("BUSY_INSTALL_SKIP_MODELS")
-    strict_source = _read_bool("BUSY_INSTALL_STRICT_SOURCE")
-    allow_copy_fallback = _read_bool("BUSY_INSTALL_ALLOW_COPY_FALLBACK")
+    workspace_value = known_args.workspace or os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")
+    workspace = Path(workspace_value).expanduser().resolve()
+    skip_models = known_args.skip_models or _read_bool("BUSY_INSTALL_SKIP_MODELS")
+    strict_source = known_args.strict_source or _read_bool("BUSY_INSTALL_STRICT_SOURCE")
+    allow_copy_fallback = known_args.allow_copy_fallback or _read_bool("BUSY_INSTALL_ALLOW_COPY_FALLBACK")
     open_management = _read_bool("MANIFEST_UI_OPEN", manifest_open)
     onboarding_url = os.getenv(
         "BUSY_INSTALL_ONBOARDING_URL",
@@ -139,7 +154,7 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
         open_management=open_management,
         onboarding_url=onboarding_url,
         management_url=management_url,
-        passthrough=passthrough,
+        passthrough=tuple(passthrough),
     )
 
 

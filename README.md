@@ -50,6 +50,13 @@ Optional environment controls:
 The launcher runs the local checkout directly and writes logs to
 `$BUSY_INSTALL_DIR/busy-installer.log`.
 
+Launcher-owned CLI flags are authoritative when provided:
+
+- `--workspace` overrides `BUSY_INSTALL_DIR`
+- `--manifest` overrides `BUSY_INSTALL_MANIFEST`
+- launcher-owned flags are parsed once and removed from passthrough so the
+  spawned installer command carries one authoritative workspace/manifest value
+
 The launcher also accepts wrapper policy defaults from manifest:
 
 ```yaml
