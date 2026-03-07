@@ -115,6 +115,25 @@ def test_parse_config_flag_first_command_is_authoritative(tmp_path: Path, monkey
     assert command[command.index("--workspace") + 1] == str(workspace.resolve())
 
 
+def test_parse_config_rejects_abbreviated_launcher_flags(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    workspace = tmp_path / "env-workspace"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    config = parse_config(["--work", str(tmp_path / "other"), "repair", "--man", "other.yaml", "--allow-copy"])
+    command = build_installer_command(config)
+
+    assert config.command == "repair"
+    assert config.workspace == workspace.resolve()
+    assert config.manifest == manifest.resolve()
+    assert config.allow_copy_fallback is False
+    assert config.passthrough == ("--work", str(tmp_path / "other"), "--man", "other.yaml", "--allow-copy")
+    assert "--allow-copy-fallback" not in command
+    assert command[-5:] == ["--work", str(tmp_path / "other"), "--man", "other.yaml", "--allow-copy"]
+
+
 def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "manifest.yaml"
     _write_manifest(manifest)

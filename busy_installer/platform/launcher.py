@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import json
-import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -119,20 +118,72 @@ class LauncherConfig:
     passthrough: tuple[str, ...]
 
 
-def _parse_launcher_passthrough(args: list[str]) -> tuple[argparse.Namespace, tuple[str, ...]]:
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("command", nargs="?")
-    parser.add_argument("--manifest")
-    parser.add_argument("--workspace")
-    parser.add_argument("--skip-models", action="store_true", default=False)
-    parser.add_argument("--strict-source", action="store_true", default=False)
-    parser.add_argument("--allow-copy-fallback", action="store_true", default=False)
-    known_args, passthrough = parser.parse_known_args(args)
-    command = getattr(known_args, "command", None)
-    if command and command not in _VALID_COMMANDS:
-        passthrough = (command, *passthrough)
-        known_args.command = None
-    return known_args, tuple(passthrough)
+@dataclass(frozen=True)
+class _ParsedLauncherArgs:
+    command: str | None
+    manifest: str | None
+    workspace: str | None
+    skip_models: bool
+    strict_source: bool
+    allow_copy_fallback: bool
+
+
+def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, tuple[str, ...]]:
+    command: str | None = None
+    manifest: str | None = None
+    workspace: str | None = None
+    skip_models = False
+    strict_source = False
+    allow_copy_fallback = False
+    passthrough: list[str] = []
+
+    index = 0
+    while index < len(args):
+        token = args[index]
+
+        if token == "--manifest":
+            if index + 1 >= len(args):
+                raise SystemExit("argument --manifest: expected one argument")
+            manifest = args[index + 1]
+            index += 2
+            continue
+        if token == "--workspace":
+            if index + 1 >= len(args):
+                raise SystemExit("argument --workspace: expected one argument")
+            workspace = args[index + 1]
+            index += 2
+            continue
+        if token == "--skip-models":
+            skip_models = True
+            index += 1
+            continue
+        if token == "--strict-source":
+            strict_source = True
+            index += 1
+            continue
+        if token == "--allow-copy-fallback":
+            allow_copy_fallback = True
+            index += 1
+            continue
+        if not token.startswith("-") and token in _VALID_COMMANDS and command is None:
+            command = token
+            index += 1
+            continue
+
+        passthrough.append(token)
+        index += 1
+
+    return (
+        _ParsedLauncherArgs(
+            command=command,
+            manifest=manifest,
+            workspace=workspace,
+            skip_models=skip_models,
+            strict_source=strict_source,
+            allow_copy_fallback=allow_copy_fallback,
+        ),
+        tuple(passthrough),
+    )
 
 
 def parse_config(argv: list[str] | None = None) -> LauncherConfig:
