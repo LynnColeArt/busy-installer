@@ -192,7 +192,7 @@ def test_parse_config_rejects_flag_like_launcher_values(
         ),
         (
             ["alpha", "--workspace", "/tmp/ws", "repair"],
-            "launcher command must appear before passthrough tokens: repair",
+            "launcher-owned token may not appear after passthrough tokens: --workspace",
         ),
     ],
 )
@@ -216,6 +216,39 @@ def test_parse_config_double_dash_passthrough_still_fences_command_tokens(
 
     assert config.command == "install"
     assert config.passthrough == ("--", "repair")
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_message"),
+    [
+        (
+            ["alpha", "--workspace", "/tmp/ws"],
+            "launcher-owned token may not appear after passthrough tokens: --workspace",
+        ),
+        (
+            ["alpha", "--manifest", "m.yaml"],
+            "launcher-owned token may not appear after passthrough tokens: --manifest",
+        ),
+        (
+            ["alpha", "--skip-models"],
+            "launcher-owned token may not appear after passthrough tokens: --skip-models",
+        ),
+        (
+            ["install", "alpha", "--workspace", "/tmp/ws"],
+            "launcher-owned token may not appear after passthrough tokens: --workspace",
+        ),
+        (
+            ["install", "alpha", "--allow-copy-fallback"],
+            "launcher-owned token may not appear after passthrough tokens: --allow-copy-fallback",
+        ),
+    ],
+)
+def test_parse_config_rejects_launcher_owned_tokens_after_positional_passthrough(
+    argv: list[str],
+    expected_message: str,
+) -> None:
+    with pytest.raises(SystemExit, match=expected_message):
+        parse_config(argv)
 
 
 def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:

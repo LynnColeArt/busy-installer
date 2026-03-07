@@ -154,6 +154,16 @@ def _ensure_option_not_repeated(
         raise SystemExit(f"argument {option_name}: may only be specified once")
 
 
+def _ensure_token_not_after_passthrough(
+    token: str,
+    saw_positional_passthrough: bool,
+) -> None:
+    if saw_positional_passthrough:
+        raise SystemExit(
+            f"launcher-owned token may not appear after passthrough tokens: {token}"
+        )
+
+
 def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, tuple[str, ...]]:
     command: str | None = None
     manifest: str | None = None
@@ -162,7 +172,7 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
     strict_source = False
     allow_copy_fallback = False
     passthrough: list[str] = []
-    saw_passthrough_before_command = False
+    saw_positional_passthrough = False
 
     index = 0
     while index < len(args):
@@ -172,27 +182,32 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             passthrough.extend(args[index:])
             break
         if token == "--manifest":
+            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
             _ensure_option_not_repeated(token, manifest)
             manifest, index = _consume_required_option_value(args, index, token)
             continue
         if token == "--workspace":
+            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
             _ensure_option_not_repeated(token, workspace)
             workspace, index = _consume_required_option_value(args, index, token)
             continue
         if token == "--skip-models":
+            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
             skip_models = True
             index += 1
             continue
         if token == "--strict-source":
+            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
             strict_source = True
             index += 1
             continue
         if token == "--allow-copy-fallback":
+            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
             allow_copy_fallback = True
             index += 1
             continue
         if not token.startswith("-") and token in _VALID_COMMANDS and command is None:
-            if saw_passthrough_before_command:
+            if saw_positional_passthrough:
                 raise SystemExit(
                     f"launcher command must appear before passthrough tokens: {token}"
                 )
@@ -205,8 +220,7 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             )
 
         passthrough.append(token)
-        if command is None:
-            saw_passthrough_before_command = True
+        saw_positional_passthrough = True
         index += 1
 
     return (
