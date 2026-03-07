@@ -100,6 +100,21 @@ def test_parse_config_cli_workspace_overrides_environment(tmp_path: Path, monkey
     assert config.passthrough == ("alpha",)
 
 
+def test_parse_config_flag_first_command_is_authoritative(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    workspace = tmp_path / "actual"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+
+    config = parse_config(["--workspace", str(workspace), "repair"])
+    command = build_installer_command(config)
+
+    assert config.command == "repair"
+    assert command[command.index("-m") + 2] == "repair"
+    assert "--workspace" in command
+    assert command[command.index("--workspace") + 1] == str(workspace.resolve())
+
+
 def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "manifest.yaml"
     _write_manifest(manifest)
@@ -171,6 +186,17 @@ def test_build_installer_command_does_not_duplicate_launcher_owned_flags(tmp_pat
     assert command.count("--strict-source") == 1
     assert command.count("--allow-copy-fallback") == 1
     assert command[-1] == "alpha"
+
+
+def test_parse_config_unknown_bare_token_stays_passthrough(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+
+    config = parse_config(["alpha"])
+
+    assert config.command == "install"
+    assert config.passthrough == ("alpha",)
 
 
 def test_run_executes_installer_and_opens_onboarding_when_state_missing(tmp_path: Path, monkeypatch: object) -> None:
