@@ -77,18 +77,24 @@ Both shell entrypoints route through `busy_installer.platform.launcher` so behav
 python -m busy_installer.platform.launcher install
 ```
 
-### Required repositories
+### Required plugin bootstrap binding checklist
 
-The installer manifest marks required repos with `required: true`. If a required
-repo fails to sync, the install fails.
+Installer/runtime alignment follows Busy core's required plugin matrix. If a
+required repo or plugin source fails to sync or mount, install must fail closed.
 
-The current required set includes:
-- `busy38-core`
-- `busy38-discord`
-- `busy38-telegram`
-- `busy-38-doc-ingest` (mandatory during onboarding/document ingestion setup)
-- `RangeWriter4-a`
-- `Blossom`
+Current required plugin bootstrap binding checklist:
+
+- `busy-38-squidkeys`
+- `busy-38-rangewriter`
+- `busy-38-blossom`
+- `busy-38-management-ui`
+- `busy-38-gticket`
+- `busy-installer`
+- `busy38-security-agent`
+- `busy-38-git`
+- `openclaw-browser-for-busy38`
+- `busy-38-watchdog`
+- `busy-38-onboarding`
 
 The manifest also supports an optional provider-catalog block:
 
