@@ -86,6 +86,49 @@ def test_build_installer_command_includes_passthrough_and_flags(tmp_path: Path, 
     assert "alpha" in command
 
 
+def test_parse_config_cli_workspace_overrides_environment(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    cli_workspace = tmp_path / "actual"
+    env_workspace = tmp_path / "env"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(env_workspace))
+
+    config = parse_config(["install", "--workspace", str(cli_workspace), "alpha"])
+
+    assert config.workspace == cli_workspace.resolve()
+    assert config.passthrough == ("alpha",)
+
+
+def test_build_installer_command_does_not_duplicate_launcher_owned_flags(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    workspace = tmp_path / "actual"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+
+    config = parse_config(
+        [
+            "repair",
+            "--workspace",
+            str(workspace),
+            "--manifest",
+            str(manifest),
+            "--skip-models",
+            "--strict-source",
+            "--allow-copy-fallback",
+            "alpha",
+        ]
+    )
+    command = build_installer_command(config)
+
+    assert command.count("--workspace") == 1
+    assert command.count("--manifest") == 1
+    assert command.count("--skip-models") == 1
+    assert command.count("--strict-source") == 1
+    assert command.count("--allow-copy-fallback") == 1
+    assert command[-1] == "alpha"
+
+
 def test_run_executes_installer_and_opens_onboarding_when_state_missing(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "docs" / "installer-manifest.yaml"
     _write_manifest(

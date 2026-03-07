@@ -51,3 +51,10 @@
     raises an explicit conflict instead of being silently reused
 - Browser-open failures remain visible in `busy-installer.log` but no longer
   convert a successful install/repair into a failed launcher exit.
+- Launcher workspace/manifest resolution is now single-source and explicit:
+  - CLI `--workspace` / `--manifest` override environment defaults inside the
+    launcher itself,
+  - launcher-owned flags are stripped from passthrough before the installer
+    command is built,
+  - launcher logs, onboarding-state reads, browser routing, and spawned
+    installer invocation now use the same resolved workspace.
