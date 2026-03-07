@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pytest
+
 from busy_installer.platform.launcher import build_installer_command, parse_config, run
 
 
@@ -148,6 +150,21 @@ def test_parse_config_honors_double_dash_passthrough_boundary(tmp_path: Path, mo
     assert config.workspace == workspace.resolve()
     assert config.passthrough == ("--", "--workspace", str(tmp_path / "other"))
     assert command[-3:] == ["--", "--workspace", str(tmp_path / "other")]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_message"),
+    [
+        (["repair", "--workspace", "--strict-source"], "argument --workspace: expected one argument"),
+        (["repair", "--manifest", "--workspace"], "argument --manifest: expected one argument"),
+    ],
+)
+def test_parse_config_rejects_flag_like_launcher_values(
+    argv: list[str],
+    expected_message: str,
+) -> None:
+    with pytest.raises(SystemExit, match=expected_message):
+        parse_config(argv)
 
 
 def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:

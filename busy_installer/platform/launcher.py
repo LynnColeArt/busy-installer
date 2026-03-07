@@ -14,6 +14,8 @@ import yaml
 _DEFAULT_ONBOARDING_URL = "http://127.0.0.1:8093"
 _DEFAULT_MANAGEMENT_URL = "http://127.0.0.1:8031"
 _VALID_COMMANDS = {"install", "repair", "status", "clean"}
+_VALUE_OPTIONS = {"--manifest", "--workspace"}
+_BOOLEAN_OPTIONS = {"--skip-models", "--strict-source", "--allow-copy-fallback"}
 
 
 def _repo_root() -> Path:
@@ -128,6 +130,22 @@ class _ParsedLauncherArgs:
     allow_copy_fallback: bool
 
 
+def _consume_required_option_value(
+    args: list[str],
+    index: int,
+    option_name: str,
+) -> tuple[str, int]:
+    next_index = index + 1
+    if next_index >= len(args):
+        raise SystemExit(f"argument {option_name}: expected one argument")
+
+    value = args[next_index]
+    if value == "--" or value.startswith("-") or value in _VALUE_OPTIONS or value in _BOOLEAN_OPTIONS:
+        raise SystemExit(f"argument {option_name}: expected one argument")
+
+    return value, next_index + 1
+
+
 def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, tuple[str, ...]]:
     command: str | None = None
     manifest: str | None = None
@@ -145,16 +163,10 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             passthrough.extend(args[index:])
             break
         if token == "--manifest":
-            if index + 1 >= len(args):
-                raise SystemExit("argument --manifest: expected one argument")
-            manifest = args[index + 1]
-            index += 2
+            manifest, index = _consume_required_option_value(args, index, token)
             continue
         if token == "--workspace":
-            if index + 1 >= len(args):
-                raise SystemExit("argument --workspace: expected one argument")
-            workspace = args[index + 1]
-            index += 2
+            workspace, index = _consume_required_option_value(args, index, token)
             continue
         if token == "--skip-models":
             skip_models = True
