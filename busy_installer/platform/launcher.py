@@ -122,8 +122,11 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
 
     known_args, passthrough = _parse_launcher_passthrough(raw_passthrough)
 
-    manifest_value = known_args.manifest or os.getenv("BUSY_INSTALL_MANIFEST", str(_default_manifest_path()))
-    manifest = Path(manifest_value).expanduser()
+    manifest_value = known_args.manifest or os.getenv(
+        "BUSY_INSTALL_MANIFEST",
+        str(_default_manifest_path()),
+    )
+    manifest = Path(manifest_value).expanduser().resolve()
     manifest_open, manifest_onboarding_url, manifest_management_url = _read_manifest_wrappers(manifest)
     workspace_value = known_args.workspace or os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")
     workspace = Path(workspace_value).expanduser().resolve()
