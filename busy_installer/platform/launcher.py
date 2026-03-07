@@ -146,6 +146,14 @@ def _consume_required_option_value(
     return value, next_index + 1
 
 
+def _ensure_option_not_repeated(
+    option_name: str,
+    current_value: str | None,
+) -> None:
+    if current_value is not None:
+        raise SystemExit(f"argument {option_name}: may only be specified once")
+
+
 def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, tuple[str, ...]]:
     command: str | None = None
     manifest: str | None = None
@@ -163,9 +171,11 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             passthrough.extend(args[index:])
             break
         if token == "--manifest":
+            _ensure_option_not_repeated(token, manifest)
             manifest, index = _consume_required_option_value(args, index, token)
             continue
         if token == "--workspace":
+            _ensure_option_not_repeated(token, workspace)
             workspace, index = _consume_required_option_value(args, index, token)
             continue
         if token == "--skip-models":
@@ -184,6 +194,10 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             command = token
             index += 1
             continue
+        if not token.startswith("-") and token in _VALID_COMMANDS:
+            raise SystemExit(
+                f"multiple launcher commands are not allowed: {command} and {token}"
+            )
 
         passthrough.append(token)
         index += 1

@@ -64,6 +64,10 @@
     fence off launcher-owned flags literally,
   - `--workspace` / `--manifest` now also reject missing or flag-like next
     tokens instead of silently consuming another launcher flag as a path value,
+  - duplicate launcher-owned `--workspace` / `--manifest` assignments now fail
+    visibly instead of silently last-winning authority,
+  - multiple wrapper subcommands now fail visibly instead of leaking extra
+    command tokens into child passthrough,
   - relative manifest paths are canonicalized before wrapper-default reads and
     child installer execution,
   - manifest-owned wrapper booleans are parsed literally so quoted values like

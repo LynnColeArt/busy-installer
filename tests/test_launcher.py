@@ -157,9 +157,38 @@ def test_parse_config_honors_double_dash_passthrough_boundary(tmp_path: Path, mo
     [
         (["repair", "--workspace", "--strict-source"], "argument --workspace: expected one argument"),
         (["repair", "--manifest", "--workspace"], "argument --manifest: expected one argument"),
+        (
+            ["repair", "--workspace", "/tmp/one", "--workspace", "/tmp/two"],
+            "argument --workspace: may only be specified once",
+        ),
+        (
+            ["repair", "--manifest", "/tmp/one.yaml", "--manifest", "/tmp/two.yaml"],
+            "argument --manifest: may only be specified once",
+        ),
     ],
 )
 def test_parse_config_rejects_flag_like_launcher_values(
+    argv: list[str],
+    expected_message: str,
+) -> None:
+    with pytest.raises(SystemExit, match=expected_message):
+        parse_config(argv)
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_message"),
+    [
+        (
+            ["install", "repair"],
+            "multiple launcher commands are not allowed: install and repair",
+        ),
+        (
+            ["repair", "clean"],
+            "multiple launcher commands are not allowed: repair and clean",
+        ),
+    ],
+)
+def test_parse_config_rejects_multiple_launcher_commands(
     argv: list[str],
     expected_message: str,
 ) -> None:
