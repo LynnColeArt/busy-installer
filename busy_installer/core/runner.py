@@ -9,6 +9,7 @@ import string
 import urllib.parse
 import urllib.request
 import shlex
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, List
 
@@ -189,6 +190,36 @@ class InstallerEngine:
         if code != 0:
             raise InstallFailure(f"command failed (rc={code}): {' '.join(command)}")
         return code
+
+    @staticmethod
+    def _installer_repo_root() -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @contextmanager
+    def _workflow_pythonpath(self) -> Any:
+        # Workflow commands run from the target workspace. Prepending the
+        # installer repo root keeps explicit `python -m busy_installer...`
+        # commands runnable from a local clone without requiring a prior
+        # editable install on the host.
+        current = os.environ.get("PYTHONPATH")
+        entries = [str(self._installer_repo_root())]
+        if current:
+            entries.extend(item for item in current.split(os.pathsep) if item)
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in entries:
+            if item in seen:
+                continue
+            seen.add(item)
+            normalized.append(item)
+        os.environ["PYTHONPATH"] = os.pathsep.join(normalized)
+        try:
+            yield
+        finally:
+            if current is None:
+                os.environ.pop("PYTHONPATH", None)
+            else:
+                os.environ["PYTHONPATH"] = current
 
     def _apply_source_bindings(self) -> None:
         entries = list(self.manifest.canonical_bindings())
@@ -576,7 +607,8 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("onboarding", "ok", message=f"Would run command: {self.manifest.onboarding.command}")
             return
-        self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
+        with self._workflow_pythonpath():
+            self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
         self._record_step("onboarding", "ok", message="Onboarding command completed")
 
     def _run_smoke(self) -> None:
@@ -587,7 +619,8 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("smoke", "ok", message=f"Would run command: {self.manifest.smoke.command}")
             return
-        self._run(self._split_command(self.manifest.smoke.command), self.workspace)
+        with self._workflow_pythonpath():
+            self._run(self._split_command(self.manifest.smoke.command), self.workspace)
         self._record_step("smoke", "ok", message="Smoke check completed")
 
     def _finalize(self) -> None:

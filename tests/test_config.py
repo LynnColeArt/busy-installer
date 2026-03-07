@@ -61,16 +61,29 @@ source_of_truth:
     assert manifest.provider_catalog.timeout_seconds == 4
 
 
-def test_bundled_manifest_uses_workspace_relative_busy_wrapper_and_current_ports() -> None:
+def test_bundled_manifest_uses_onboarding_bootstrap_helper_and_current_ports() -> None:
     manifest_path = Path(__file__).resolve().parents[1] / "docs" / "installer-manifest.yaml"
     payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
 
     workflows = payload["workflows"]
     wrappers = payload["wrappers"]
     core_repo = next(repo for repo in payload["repositories"] if repo["name"] == "busy38-core")
+    doc_ingest_repo = next(repo for repo in payload["repositories"] if repo["name"] == "busy38-doc-ingest")
+    rangewriter_repo = next(repo for repo in payload["repositories"] if repo["name"] == "RangeWriter4-a")
+    blossom_repo = next(repo for repo in payload["repositories"] if repo["name"] == "Blossom")
 
-    assert workflows["onboarding"]["command"] == "python busy-38-ongoing/busy service setup"
-    assert workflows["smoke"]["command"] == "python busy-38-ongoing/busy --help"
+    assert (
+        workflows["onboarding"]["command"]
+        == "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093"
+    )
+    assert (
+        workflows["smoke"]["command"]
+        == "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093 --check-only"
+    )
     assert wrappers["onboarding_url"] == "http://127.0.0.1:8093"
     assert wrappers["management_url"] == "http://127.0.0.1:8031"
     assert core_repo["post_pull_steps"] == ["python -m pip install -r requirements.txt"]
+    assert doc_ingest_repo["url"] == "https://github.com/LynnColeArt/busy38-doc-ingest.git"
+    assert doc_ingest_repo["local_path"] == "busy-38-ongoing/vendor/busy-38-doc-ingest"
+    assert rangewriter_repo["url"] == "https://github.com/LynnColeArt/rangewriter.git"
+    assert blossom_repo["url"] == "https://github.com/LynnColeArt/blossom.git"

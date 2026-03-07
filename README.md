@@ -71,6 +71,20 @@ Post-install browser routing is onboarding-first:
 Browser-open failures are logged but do not turn a successful install/repair
 into a failed launcher exit.
 
+The bundled manifest now uses explicit installer-owned workflow commands:
+
+- onboarding bootstrap:
+  `python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093`
+- smoke:
+  `python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093 --check-only`
+
+These workflow commands are executed from the install workspace. The installer
+runtime prepends the local `busy-installer` checkout to `PYTHONPATH` so the
+platform launcher works from a plain repo clone without requiring a separate
+editable install first. The onboarding bootstrap command launches the vendored
+web app as a detached background process, then returns only after the local
+HTTP surface is reachable.
+
 ## macOS and Windows one-click
 
 Run the platform-native entrypoints for a wrapped launch flow:
@@ -103,7 +117,7 @@ The current required set includes:
 - `busy38-core`
 - `busy38-discord`
 - `busy38-telegram`
-- `busy-38-doc-ingest` (mandatory during onboarding/document ingestion setup)
+- `busy38-doc-ingest` (mandatory during onboarding/document ingestion setup; adapter mount remains `vendor/busy-38-doc-ingest`)
 - `RangeWriter4-a`
 - `Blossom`
 
@@ -129,6 +143,10 @@ Run the CLI in dry-run mode to preview all steps:
 ```bash
 pillowfort-installer install --manifest docs/installer-manifest.yaml --dry-run
 ```
+
+For the current bundled manifest, local validation should also pass
+`--skip-models` or set `BUSY_INSTALL_SKIP_MODELS=1` until the example model
+checksum is replaced with a real artifact checksum.
 
 ## Commands
 
