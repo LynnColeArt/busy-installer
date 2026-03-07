@@ -10,7 +10,7 @@ repositories:
     local_path: "busy-38-ongoing"
     required: true
     post_pull_steps:
-      - "python -m pip install -e ."
+      - "python -m pip install -r requirements.txt"
   - name: busy38-discord
     url: "https://github.com/LynnColeArt/busy38-discord.git"
     branch: "main"
@@ -77,10 +77,11 @@ models:
 
 wrappers:
   open_management_on_complete: true
-  management_url: "http://127.0.0.1:8080"
+  onboarding_url: "http://127.0.0.1:8093"
+  management_url: "http://127.0.0.1:8031"
 
 workflows:
   onboarding:
-    command: "busy service setup"
+    command: "python busy-38-ongoing/busy service setup"
   smoke:
-    command: "busy --help"
+    command: "python busy-38-ongoing/busy --help"

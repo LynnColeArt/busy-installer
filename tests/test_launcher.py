@@ -35,6 +35,7 @@ def test_parse_config_reads_manifest_wrapper_defaults(tmp_path: Path, monkeypatc
         wrappers="""
 wrappers:
   open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
   management_url: "http://127.0.0.1:8080/admin"
 """,
     )
@@ -42,6 +43,7 @@ wrappers:
 
     config = parse_config([])
     assert config.open_management is True
+    assert config.onboarding_url == "http://127.0.0.1:8093/start"
     assert config.management_url == "http://127.0.0.1:8080/admin"
 
 
@@ -52,15 +54,18 @@ def test_parse_config_respects_environment_overrides(tmp_path: Path, monkeypatch
         wrappers="""
 wrappers:
   open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
   management_url: "http://127.0.0.1:8080/admin"
 """,
     )
     _run_env_manifest(manifest, monkeypatch)
     monkeypatch.setenv("MANIFEST_UI_OPEN", "0")
+    monkeypatch.setenv("BUSY_INSTALL_ONBOARDING_URL", "http://127.0.0.1:7777/onboarding")
     monkeypatch.setenv("BUSY_INSTALL_MANAGEMENT_URL", "http://127.0.0.1:9999/ops")
 
     config = parse_config([])
     assert config.open_management is False
+    assert config.onboarding_url == "http://127.0.0.1:7777/onboarding"
     assert config.management_url == "http://127.0.0.1:9999/ops"
 
 
@@ -81,13 +86,14 @@ def test_build_installer_command_includes_passthrough_and_flags(tmp_path: Path, 
     assert "alpha" in command
 
 
-def test_run_executes_installer_and_records_log_and_optional_ui_open(tmp_path: Path, monkeypatch: object) -> None:
+def test_run_executes_installer_and_opens_onboarding_when_state_missing(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "docs" / "installer-manifest.yaml"
     _write_manifest(
         manifest,
         wrappers="""
 wrappers:
   open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
   management_url: "http://127.0.0.1:8080/admin"
 """,
     )
@@ -110,14 +116,53 @@ wrappers:
         return 0
 
     monkeypatch.setattr("busy_installer.platform.launcher.subprocess.run", fake_run)
-    monkeypatch.setattr("busy_installer.platform.launcher._open_management_url", fake_open)
+    monkeypatch.setattr("busy_installer.platform.launcher._open_url", fake_open)
 
     exit_code = run(["install", "--workspace", str(workspace)])
     assert exit_code == 0
     assert "busy_installer.cli" in opened[0]
-    assert any(item == "OPEN:http://127.0.0.1:8080/admin" for item in opened)
+    assert any(item == "OPEN:http://127.0.0.1:8093/start" for item in opened)
     assert (workspace / "busy-installer.log").exists()
-    assert "[launcher] running command:" in (workspace / "busy-installer.log").read_text(encoding="utf-8")
+    text = (workspace / "busy-installer.log").read_text(encoding="utf-8")
+    assert "[launcher] running command:" in text
+    assert "[launcher] opening onboarding URL: http://127.0.0.1:8093/start" in text
+
+
+def test_run_opens_management_when_onboarding_state_is_active(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
+  management_url: "http://127.0.0.1:8031/admin"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    onboarding_state = workspace / ".busy" / "onboarding" / "state.json"
+    onboarding_state.parent.mkdir(parents=True, exist_ok=True)
+    onboarding_state.write_text('{"state":"ACTIVE"}\n', encoding="utf-8")
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+    opened: list[str] = []
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda url: opened.append(f"OPEN:{url}") or 0,
+    )
+
+    exit_code = run(["repair"])
+    assert exit_code == 0
+    assert opened == ["OPEN:http://127.0.0.1:8031/admin"]
 
 
 def test_run_failure_prevents_management_launch(tmp_path: Path, monkeypatch: object) -> None:
@@ -139,11 +184,41 @@ wrappers:
             self.returncode = returncode
 
     monkeypatch.setattr("busy_installer.platform.launcher.subprocess.run", lambda *_args, **_kwargs: _FakeResult(9))
-    monkeypatch.setattr("busy_installer.platform.launcher._open_management_url", lambda *_args: opened.append("open-called") or 7)
+    monkeypatch.setattr("busy_installer.platform.launcher._open_url", lambda *_args: opened.append("open-called") or 7)
 
     exit_code = run(["repair"])
     assert exit_code == 9
     assert opened == []
+
+
+def test_open_failure_is_logged_but_non_fatal(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    monkeypatch.setattr("busy_installer.platform.launcher._open_url", lambda *_args: 7)
+
+    exit_code = run(["install"])
+    assert exit_code == 0
+    text = (workspace / "busy-installer.log").read_text(encoding="utf-8")
+    assert "failed to open onboarding URL (rc=7)" in text
 
 
 def test_wrapper_scripts_target_launcher_entrypoint() -> None:

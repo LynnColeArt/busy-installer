@@ -5,10 +5,14 @@ import shlex
 import shutil
 import subprocess
 import sys
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+_DEFAULT_ONBOARDING_URL = "http://127.0.0.1:8093"
+_DEFAULT_MANAGEMENT_URL = "http://127.0.0.1:8031"
 
 
 def _repo_root() -> Path:
@@ -26,29 +30,60 @@ def _read_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on", "y"}
 
 
-def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None]:
+def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None, str | None]:
     wrappers_open = False
+    onboarding_url = None
     management_url = None
     try:
         if not path.exists():
-            return wrappers_open, management_url
+            return wrappers_open, onboarding_url, management_url
         with path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
     except (OSError, yaml.YAMLError, ValueError):
-        return wrappers_open, management_url
+        return wrappers_open, onboarding_url, management_url
 
     if not isinstance(data, dict):
-        return wrappers_open, management_url
+        return wrappers_open, onboarding_url, management_url
 
     wrappers = data.get("wrappers")
     if not isinstance(wrappers, dict):
-        return wrappers_open, management_url
+        return wrappers_open, onboarding_url, management_url
 
     wrappers_open = bool(wrappers.get("open_management_on_complete", False))
+    candidate = wrappers.get("onboarding_url")
+    if isinstance(candidate, str) and candidate.strip():
+        onboarding_url = candidate.strip()
     candidate = wrappers.get("management_url")
     if isinstance(candidate, str) and candidate.strip():
         management_url = candidate.strip()
-    return wrappers_open, management_url
+    return wrappers_open, onboarding_url, management_url
+
+
+def _onboarding_state_path(workspace: Path) -> Path:
+    return workspace / ".busy" / "onboarding" / "state.json"
+
+
+def _load_onboarding_state(workspace: Path) -> str | None:
+    path = _onboarding_state_path(workspace)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    state = payload.get("state")
+    if not isinstance(state, str):
+        return None
+    normalized = state.strip().upper()
+    return normalized or None
+
+
+def _select_completion_surface(config: "LauncherConfig") -> tuple[str, str | None, str | None]:
+    onboarding_state = _load_onboarding_state(config.workspace)
+    if onboarding_state == "ACTIVE":
+        return "management", config.management_url, onboarding_state
+    return "onboarding", config.onboarding_url, onboarding_state
 
 
 @dataclass(frozen=True)
@@ -60,6 +95,7 @@ class LauncherConfig:
     strict_source: bool
     allow_copy_fallback: bool
     open_management: bool
+    onboarding_url: str | None
     management_url: str | None
     passthrough: tuple[str, ...]
 
@@ -74,13 +110,22 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
         passthrough = tuple(args[1:])
 
     manifest = Path(os.getenv("BUSY_INSTALL_MANIFEST", str(_default_manifest_path()))).expanduser()
-    manifest_open, manifest_url = _read_manifest_wrappers(manifest)
+    manifest_open, manifest_onboarding_url, manifest_management_url = _read_manifest_wrappers(manifest)
     workspace = Path(os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")).expanduser().resolve()
     skip_models = _read_bool("BUSY_INSTALL_SKIP_MODELS")
     strict_source = _read_bool("BUSY_INSTALL_STRICT_SOURCE")
     allow_copy_fallback = _read_bool("BUSY_INSTALL_ALLOW_COPY_FALLBACK")
     open_management = _read_bool("MANIFEST_UI_OPEN", manifest_open)
-    management_url = os.getenv("BUSY_INSTALL_MANAGEMENT_URL", manifest_url or "http://127.0.0.1:8080").strip() or None
+    onboarding_url = os.getenv(
+        "BUSY_INSTALL_ONBOARDING_URL",
+        manifest_onboarding_url or _DEFAULT_ONBOARDING_URL,
+    ).strip() or None
+    management_url = os.getenv(
+        "BUSY_INSTALL_MANAGEMENT_URL",
+        manifest_management_url or _DEFAULT_MANAGEMENT_URL,
+    ).strip() or None
+    if not onboarding_url:
+        onboarding_url = None
     if not management_url:
         management_url = None
 
@@ -92,6 +137,7 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
         strict_source=strict_source,
         allow_copy_fallback=allow_copy_fallback,
         open_management=open_management,
+        onboarding_url=onboarding_url,
         management_url=management_url,
         passthrough=passthrough,
     )
@@ -112,7 +158,7 @@ def build_installer_command(config: LauncherConfig) -> list[str]:
     return command
 
 
-def _open_management_url(url: str) -> int:
+def _open_url(url: str) -> int:
     open_commands: dict[str, tuple[str, ...]] = {
         "darwin": ("open", url),
         "win32": ("cmd", "/c", "start", "", url),
@@ -163,8 +209,23 @@ def run(argv: list[str] | None = None) -> int:
 
         handle.write("[launcher] installer completed successfully\n")
 
-    if config.open_management and config.management_url and config.command in {"install", "repair"}:
-        return _open_management_url(config.management_url)
+    if config.open_management and config.command in {"install", "repair"}:
+        surface_name, target_url, onboarding_state = _select_completion_surface(config)
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"[launcher] onboarding_state: {onboarding_state or 'missing-or-incomplete'}\n")
+            if not target_url:
+                handle.write(f"[launcher] no {surface_name} URL configured; skipping browser open.\n")
+                return 0
+            handle.write(f"[launcher] opening {surface_name} URL: {target_url}\n")
+        open_exit = _open_url(target_url)
+        with log_path.open("a", encoding="utf-8") as handle:
+            if open_exit != 0:
+                handle.write(
+                    f"[launcher] failed to open {surface_name} URL (rc={open_exit}): {target_url}\n"
+                )
+            else:
+                handle.write(f"[launcher] opened {surface_name} URL successfully\n")
+        return 0
     return 0
 
 
