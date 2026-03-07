@@ -14,6 +14,7 @@ import yaml
 
 _DEFAULT_ONBOARDING_URL = "http://127.0.0.1:8093"
 _DEFAULT_MANAGEMENT_URL = "http://127.0.0.1:8031"
+_VALID_COMMANDS = {"install", "repair", "status", "clean"}
 
 
 def _repo_root() -> Path:
@@ -120,24 +121,24 @@ class LauncherConfig:
 
 def _parse_launcher_passthrough(args: list[str]) -> tuple[argparse.Namespace, tuple[str, ...]]:
     parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("command", nargs="?")
     parser.add_argument("--manifest")
     parser.add_argument("--workspace")
     parser.add_argument("--skip-models", action="store_true", default=False)
     parser.add_argument("--strict-source", action="store_true", default=False)
     parser.add_argument("--allow-copy-fallback", action="store_true", default=False)
-    return parser.parse_known_args(args)
+    known_args, passthrough = parser.parse_known_args(args)
+    command = getattr(known_args, "command", None)
+    if command and command not in _VALID_COMMANDS:
+        passthrough = (command, *passthrough)
+        known_args.command = None
+    return known_args, tuple(passthrough)
 
 
 def parse_config(argv: list[str] | None = None) -> LauncherConfig:
     args = list(argv or [])
-    if not args or args[0].startswith("-"):
-        command = "install"
-        raw_passthrough = args
-    else:
-        command = args[0]
-        raw_passthrough = args[1:]
-
-    known_args, passthrough = _parse_launcher_passthrough(raw_passthrough)
+    known_args, passthrough = _parse_launcher_passthrough(args)
+    command = known_args.command or "install"
 
     manifest_value = known_args.manifest or os.getenv(
         "BUSY_INSTALL_MANIFEST",

@@ -54,6 +54,9 @@
 - Launcher workspace/manifest resolution is now single-source and explicit:
   - CLI `--workspace` / `--manifest` override environment defaults inside the
     launcher itself,
+  - the launcher subcommand is now parsed independently of flag order, so
+    `repair --workspace ...` and `--workspace ... repair` resolve to the same
+    authoritative command,
   - relative manifest paths are canonicalized before wrapper-default reads and
     child installer execution,
   - manifest-owned wrapper booleans are parsed literally so quoted values like

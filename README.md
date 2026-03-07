@@ -54,6 +54,9 @@ Launcher-owned CLI flags are authoritative when provided:
 
 - `--workspace` overrides `BUSY_INSTALL_DIR`
 - `--manifest` overrides `BUSY_INSTALL_MANIFEST`
+- launcher subcommand parsing is independent of flag order, so
+  `repair --workspace /tmp/ws` and `--workspace /tmp/ws repair` resolve to the
+  same authoritative command
 - relative `--manifest` paths are resolved once up front and reused for both
   launcher reads and the spawned installer process
 - launcher-owned flags are parsed once and removed from passthrough so the
