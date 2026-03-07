@@ -271,12 +271,24 @@ class InstallerEngine:
             return "canonical_target"
         if adapter.is_symlink() and adapter.resolve() == canonical:
             return "symlink"
-        if not adapter.exists():
+        adapter_present = adapter.exists() or adapter.is_symlink()
+        if not adapter_present:
             if self.dry_run:
                 return "would_mount_symlink"
-            self._create_canonical_symlink(adapter, canonical)
-            return "symlink"
+            try:
+                self._create_canonical_symlink(adapter, canonical)
+                return "symlink"
+            except (OSError, RuntimeError) as exc:
+                if not self.fallback_allowed:
+                    raise InstallFailure(
+                        f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled"
+                    ) from exc
+                self._replace_with_adapter_copy(adapter, canonical)
+                return "copy"
         if self.fallback_allowed and not adapter.is_symlink():
+            if self.dry_run:
+                return "copy"
+            self._replace_with_adapter_copy(adapter, canonical)
             return "copy"
         if self.dry_run:
             return "would_mount_symlink"
@@ -295,13 +307,7 @@ class InstallerEngine:
 
     def _create_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
         adapter.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            adapter.symlink_to(canonical)
-        except (OSError, RuntimeError):
-            if self.fallback_allowed:
-                adapter.mkdir(parents=True, exist_ok=True)
-            else:
-                raise
+        adapter.symlink_to(canonical)
 
     def _replace_with_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
         # In symlink-first mode, workspace adapter copies are staging artifacts.
@@ -309,6 +315,13 @@ class InstallerEngine:
         # mount is actually active rather than just warned about.
         self._remove_adapter_path(adapter)
         self._create_canonical_symlink(adapter, canonical)
+
+    def _replace_with_adapter_copy(self, adapter: Path, canonical: Path) -> None:
+        # Explicit copy fallback must materialize the canonical repo contents,
+        # not just leave a placeholder directory that looks mounted.
+        self._remove_adapter_path(adapter)
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(canonical, adapter)
 
     def _resolve_repo_mount(self, mount: str) -> Path:
         return (self.workspace / mount).resolve()
