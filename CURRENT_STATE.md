@@ -67,6 +67,9 @@
   - once positional passthrough begins before command authority binds, a later
     valid wrapper subcommand now fails visibly instead of being silently
     reinterpreted as launcher authority,
+  - once positional passthrough begins, later launcher-owned flags now also
+    fail visibly instead of mutating wrapper authority after the child
+    boundary has already started,
   - duplicate launcher-owned `--workspace` / `--manifest` assignments now fail
     visibly instead of silently last-winning authority,
   - multiple wrapper subcommands now fail visibly instead of leaking extra

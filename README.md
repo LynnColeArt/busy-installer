@@ -64,6 +64,9 @@ Launcher-owned CLI flags are authoritative when provided:
 - once positional passthrough begins before command authority binds, a later
   valid wrapper subcommand now fails visibly instead of being reinterpreted as
   authoritative launcher intent
+- once positional passthrough has begun, later launcher-owned flags now also
+  fail visibly instead of mutating wrapper authority after the child boundary
+  is already established
 - duplicate launcher-owned `--workspace` / `--manifest` assignments now fail
   visibly instead of silently last-winning authority
 - multiple wrapper subcommands now fail visibly instead of leaking extra
