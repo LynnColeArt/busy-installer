@@ -124,7 +124,7 @@ def test_parse_config_rejects_abbreviated_launcher_flags(tmp_path: Path, monkeyp
     _run_env_manifest(manifest, monkeypatch)
     monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
 
-    config = parse_config(["--work", str(tmp_path / "other"), "repair", "--man", "other.yaml", "--allow-copy"])
+    config = parse_config(["repair", "--work", str(tmp_path / "other"), "--man", "other.yaml", "--allow-copy"])
     command = build_installer_command(config)
 
     assert config.command == "repair"
@@ -186,6 +186,14 @@ def test_parse_config_rejects_flag_like_launcher_values(
             ["repair", "clean"],
             "multiple launcher commands are not allowed: repair and clean",
         ),
+        (
+            ["alpha", "repair"],
+            "launcher command must appear before passthrough tokens: repair",
+        ),
+        (
+            ["alpha", "--workspace", "/tmp/ws", "repair"],
+            "launcher command must appear before passthrough tokens: repair",
+        ),
     ],
 )
 def test_parse_config_rejects_multiple_launcher_commands(
@@ -194,6 +202,20 @@ def test_parse_config_rejects_multiple_launcher_commands(
 ) -> None:
     with pytest.raises(SystemExit, match=expected_message):
         parse_config(argv)
+
+
+def test_parse_config_double_dash_passthrough_still_fences_command_tokens(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+
+    config = parse_config(["--", "repair"])
+
+    assert config.command == "install"
+    assert config.passthrough == ("--", "repair")
 
 
 def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:

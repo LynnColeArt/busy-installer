@@ -64,6 +64,9 @@
     fence off launcher-owned flags literally,
   - `--workspace` / `--manifest` now also reject missing or flag-like next
     tokens instead of silently consuming another launcher flag as a path value,
+  - once positional passthrough begins before command authority binds, a later
+    valid wrapper subcommand now fails visibly instead of being silently
+    reinterpreted as launcher authority,
   - duplicate launcher-owned `--workspace` / `--manifest` assignments now fail
     visibly instead of silently last-winning authority,
   - multiple wrapper subcommands now fail visibly instead of leaking extra

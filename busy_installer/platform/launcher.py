@@ -162,6 +162,7 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
     strict_source = False
     allow_copy_fallback = False
     passthrough: list[str] = []
+    saw_passthrough_before_command = False
 
     index = 0
     while index < len(args):
@@ -191,6 +192,10 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             index += 1
             continue
         if not token.startswith("-") and token in _VALID_COMMANDS and command is None:
+            if saw_passthrough_before_command:
+                raise SystemExit(
+                    f"launcher command must appear before passthrough tokens: {token}"
+                )
             command = token
             index += 1
             continue
@@ -200,6 +205,8 @@ def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, t
             )
 
         passthrough.append(token)
+        if command is None:
+            saw_passthrough_before_command = True
         index += 1
 
     return (
