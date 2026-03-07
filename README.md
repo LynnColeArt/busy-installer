@@ -43,6 +43,7 @@ Optional environment controls:
 - `BUSY_INSTALL_STRICT_SOURCE=1` (enforce canonical symlink mapping)
 - `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` (permit copied adapter mounts when symlinks unavailable)
 - `MANIFEST_UI_OPEN=1` (open local web UI when available)
+- `BUSY_INSTALL_ONBOARDING_URL` (override `onboarding_url` from manifest `wrappers`)
 - `BUSY_INSTALL_MANAGEMENT_URL` (override `management_url` from manifest `wrappers`)
 - `BUSY_INSTALL_SKIP_MODELS=1` (skip model staging during install/re-install)
 
@@ -54,10 +55,21 @@ The launcher also accepts wrapper policy defaults from manifest:
 ```yaml
 wrappers:
   open_management_on_complete: true
-  management_url: "http://127.0.0.1:8080"
+  onboarding_url: "http://127.0.0.1:8093"
+  management_url: "http://127.0.0.1:8031"
 ```
 
-`MANIFEST_UI_OPEN` and `BUSY_INSTALL_MANAGEMENT_URL` override those manifest values.
+`MANIFEST_UI_OPEN`, `BUSY_INSTALL_ONBOARDING_URL`, and `BUSY_INSTALL_MANAGEMENT_URL`
+override those manifest values.
+
+Post-install browser routing is onboarding-first:
+
+- if `<workspace>/.busy/onboarding/state.json` is missing or not `ACTIVE`, the
+  launcher opens the onboarding surface,
+- once onboarding reaches `ACTIVE`, the launcher opens the management surface.
+
+Browser-open failures are logged but do not turn a successful install/repair
+into a failed launcher exit.
 
 ## macOS and Windows one-click
 

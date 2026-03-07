@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from busy_installer.core.config import InstallerManifest
 
 
@@ -57,3 +59,18 @@ source_of_truth:
     assert manifest.provider_catalog.url == "https://example.invalid/provider-catalog.json"
     assert manifest.provider_catalog.cache_path == "state/provider-catalog.json"
     assert manifest.provider_catalog.timeout_seconds == 4
+
+
+def test_bundled_manifest_uses_workspace_relative_busy_wrapper_and_current_ports() -> None:
+    manifest_path = Path(__file__).resolve().parents[1] / "docs" / "installer-manifest.yaml"
+    payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    workflows = payload["workflows"]
+    wrappers = payload["wrappers"]
+    core_repo = next(repo for repo in payload["repositories"] if repo["name"] == "busy38-core")
+
+    assert workflows["onboarding"]["command"] == "python busy-38-ongoing/busy service setup"
+    assert workflows["smoke"]["command"] == "python busy-38-ongoing/busy --help"
+    assert wrappers["onboarding_url"] == "http://127.0.0.1:8093"
+    assert wrappers["management_url"] == "http://127.0.0.1:8031"
+    assert core_repo["post_pull_steps"] == ["python -m pip install -r requirements.txt"]
