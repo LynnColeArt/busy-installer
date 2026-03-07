@@ -57,6 +57,9 @@
   - the launcher subcommand is now parsed independently of flag order, so
     `repair --workspace ...` and `--workspace ... repair` resolve to the same
     authoritative command,
+  - launcher-owned long options now bind only when spelled exactly, so
+    abbreviations like `--man` and `--work` no longer mutate launcher
+    authority silently,
   - relative manifest paths are canonicalized before wrapper-default reads and
     child installer execution,
   - manifest-owned wrapper booleans are parsed literally so quoted values like
