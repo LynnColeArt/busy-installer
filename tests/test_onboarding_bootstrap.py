@@ -19,6 +19,25 @@ def _create_busy_checkout(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_bootstrap_onboarding_reuses_existing_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace, busy_root = _create_busy_checkout(tmp_path)
+    log_path = onboarding_bootstrap._runtime_log_path(workspace)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.touch()
+    onboarding_bootstrap._write_runtime_metadata(
+        workspace=workspace,
+        busy_root=busy_root,
+        host="127.0.0.1",
+        port=8093,
+        log_path=log_path,
+        payload={
+            "success": True,
+            "state": "INTAKE_DRAFTED",
+            "schema_version": "onboarding-state-v1",
+            "context_schema_version": "onboarding-context-v1",
+            "import_schema_version": "onboarding-import-v1",
+        },
+        pid=24680,
+        reused=False,
+    )
 
     monkeypatch.setattr(
         onboarding_bootstrap,
@@ -34,14 +53,60 @@ def test_bootstrap_onboarding_reuses_existing_surface(tmp_path: Path, monkeypatc
             },
         ),
     )
+    monkeypatch.setattr(onboarding_bootstrap, "_pid_is_running", lambda pid: pid == 24680)
     monkeypatch.setattr(onboarding_bootstrap.subprocess, "Popen", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("spawn should not run")))
 
     metadata_path = onboarding_bootstrap.bootstrap_onboarding(workspace=workspace, busy_root=busy_root)
 
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert payload["reused_existing_process"] is True
-    assert payload["pid"] is None
+    assert payload["pid"] == 24680
     assert payload["state"] == "INTAKE_DRAFTED"
+
+
+def test_bootstrap_onboarding_rejects_foreign_reachable_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, busy_root = _create_busy_checkout(tmp_path)
+    log_path = onboarding_bootstrap._runtime_log_path(workspace)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.touch()
+    onboarding_bootstrap._write_runtime_metadata(
+        workspace=workspace,
+        busy_root=tmp_path / "other-workspace" / "busy-38-ongoing",
+        host="127.0.0.1",
+        port=8093,
+        log_path=log_path,
+        payload={
+            "success": True,
+            "state": "INTAKE_DRAFTED",
+            "schema_version": "onboarding-state-v1",
+            "context_schema_version": "onboarding-context-v1",
+            "import_schema_version": "onboarding-import-v1",
+        },
+        pid=13579,
+        reused=False,
+    )
+
+    monkeypatch.setattr(
+        onboarding_bootstrap,
+        "_probe_onboarding_state",
+        lambda *_args, **_kwargs: (
+            True,
+            {
+                "success": True,
+                "state": "INTAKE_DRAFTED",
+                "schema_version": "onboarding-state-v1",
+                "context_schema_version": "onboarding-context-v1",
+                "import_schema_version": "onboarding-import-v1",
+            },
+        ),
+    )
+    monkeypatch.setattr(onboarding_bootstrap, "_pid_is_running", lambda pid: pid == 13579)
+    monkeypatch.setattr(onboarding_bootstrap.subprocess, "Popen", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("spawn should not run")))
+
+    with pytest.raises(RuntimeError) as excinfo:
+        onboarding_bootstrap.bootstrap_onboarding(workspace=workspace, busy_root=busy_root)
+
+    assert "does not match the current workspace ownership" in str(excinfo.value)
 
 
 def test_bootstrap_onboarding_spawns_server_and_waits_for_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

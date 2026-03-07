@@ -101,6 +101,7 @@ workflows: {{}}
 def test_explicit_copy_fallback_keeps_adapter_copy(tmp_path: Path) -> None:
     canonical = tmp_path / "canonical-rw"
     canonical.mkdir(parents=True)
+    (canonical / "canonical.txt").write_text("canonical\n", encoding="utf-8")
     manifest_file = tmp_path / "manifest.yaml"
     manifest_file.write_text(
         f"""
@@ -124,8 +125,8 @@ workflows: {{}}
     workspace = tmp_path / "workspace"
     adapter = workspace / "busy-38-ongoing" / "vendor" / "busy-38-rangewriter"
     adapter.mkdir(parents=True, exist_ok=True)
-    marker = adapter / "copied.txt"
-    marker.write_text("copy\n", encoding="utf-8")
+    stale_marker = adapter / "stale.txt"
+    stale_marker.write_text("stale\n", encoding="utf-8")
 
     engine = InstallerEngine(
         manifest=manifest,
@@ -136,7 +137,96 @@ workflows: {{}}
 
     assert adapter.is_dir()
     assert not adapter.is_symlink()
-    assert marker.read_text(encoding="utf-8") == "copy\n"
+    assert (adapter / "canonical.txt").read_text(encoding="utf-8") == "canonical\n"
+    assert not stale_marker.exists()
+
+
+def test_explicit_copy_fallback_materializes_adapter_copy_when_symlink_creation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical = tmp_path / "canonical-rw"
+    canonical.mkdir(parents=True)
+    (canonical / "canonical.txt").write_text("canonical\n", encoding="utf-8")
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  allow_copy_fallback: true
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "{canonical}"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: true
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    adapter = workspace / "busy-38-ongoing" / "vendor" / "busy-38-rangewriter"
+
+    def fail_symlink(self, target, target_is_directory=False):  # type: ignore[no-untyped-def]
+        raise OSError("symlink creation disabled")
+
+    monkeypatch.setattr(Path, "symlink_to", fail_symlink)
+
+    engine = InstallerEngine(
+        manifest=manifest,
+        workspace=workspace,
+        fallback_allowed=True,
+    )
+    engine.run(include_models=False)
+
+    assert adapter.is_dir()
+    assert not adapter.is_symlink()
+    assert (adapter / "canonical.txt").read_text(encoding="utf-8") == "canonical\n"
+
+
+def test_symlink_failure_without_copy_fallback_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical = tmp_path / "canonical-rw"
+    canonical.mkdir(parents=True)
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        f"""
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories: []
+models: []
+source_of_truth:
+  allow_copy_fallback: false
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "{canonical}"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: true
+workflows: {{}}
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+
+    def fail_symlink(self, target, target_is_directory=False):  # type: ignore[no-untyped-def]
+        raise OSError("symlink creation disabled")
+
+    monkeypatch.setattr(Path, "symlink_to", fail_symlink)
+
+    engine = InstallerEngine(
+        manifest=manifest,
+        workspace=tmp_path / "workspace",
+    )
+
+    with pytest.raises(InstallFailure, match="copy fallback disabled"):
+        engine.run(include_models=False)
 
 
 def test_canonical_binding_accepts_mount_that_already_resolves_to_canonical(tmp_path: Path) -> None:

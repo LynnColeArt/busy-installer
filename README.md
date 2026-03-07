@@ -91,7 +91,18 @@ Source-of-truth enforcement is now symlink-first by default:
   and repair,
 - copied adapter mounts are only accepted when
   `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` or the equivalent manifest policy is
-  explicitly enabled.
+  explicitly enabled,
+- when explicit copy fallback is enabled and symlink creation fails, installer
+  now refreshes the adapter mount from the canonical repo contents instead of
+  leaving a placeholder directory behind.
+
+Onboarding bootstrap also fails closed on workspace ownership:
+
+- a reachable `127.0.0.1:8093` listener is reused only when local runtime
+  metadata for the current workspace and Busy checkout matches and the recorded
+  process is still alive,
+- otherwise installer raises an explicit conflict instead of silently trusting
+  whichever onboarding process already owns the port.
 
 ## macOS and Windows one-click
 

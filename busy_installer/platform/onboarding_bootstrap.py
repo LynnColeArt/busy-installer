@@ -48,6 +48,38 @@ def _state_url(host: str, port: int) -> str:
     return f"http://{host}:{int(port)}/api/onboarding/state"
 
 
+def _read_runtime_metadata(workspace: Path) -> dict[str, Any] | None:
+    path = _runtime_metadata_path(workspace)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"installer onboarding runtime metadata is unreadable: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"installer onboarding runtime metadata must be a JSON object: {path}")
+    return payload
+
+
+def _runtime_metadata_pid(metadata: dict[str, Any]) -> int | None:
+    raw = metadata.get("pid")
+    if isinstance(raw, int) and raw > 0:
+        return raw
+    return None
+
+
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def _probe_onboarding_state(host: str, port: int, *, timeout_seconds: float = 1.0) -> tuple[bool, dict[str, Any] | str]:
     url = _state_url(host, port)
     request = Request(url, headers={"Accept": "application/json", "User-Agent": "busy-installer/0.1.0"})
@@ -212,6 +244,27 @@ def bootstrap_onboarding(
 
     ok, probe_result = _probe_onboarding_state(host, port)
     if ok:
+        # Fail closed: a live port alone is not enough to prove this workspace
+        # owns the onboarding surface that would be reused.
+        metadata = _read_runtime_metadata(workspace)
+        expected_state_url = _state_url(host, port)
+        if metadata is None:
+            raise RuntimeError(
+                f"onboarding surface already reachable at {expected_state_url}, but current workspace has no runtime metadata to prove ownership"
+            )
+        if (
+            metadata.get("workspace") != str(workspace)
+            or metadata.get("busy_root") != str(busy_root)
+            or metadata.get("state_url") != expected_state_url
+        ):
+            raise RuntimeError(
+                f"onboarding surface already reachable at {expected_state_url}, but runtime metadata does not match the current workspace ownership"
+            )
+        existing_pid = _runtime_metadata_pid(metadata)
+        if existing_pid is None or not _pid_is_running(existing_pid):
+            raise RuntimeError(
+                f"onboarding surface already reachable at {expected_state_url}, but runtime metadata cannot prove the current workspace owns the running process"
+            )
         return _write_runtime_metadata(
             workspace=workspace,
             busy_root=busy_root,
@@ -219,7 +272,7 @@ def bootstrap_onboarding(
             port=port,
             log_path=log_path,
             payload=probe_result if isinstance(probe_result, dict) else None,
-            pid=None,
+            pid=existing_pid,
             reused=True,
         )
     if check_only:

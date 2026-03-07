@@ -40,5 +40,14 @@
     and repair
   - copied adapter mounts are accepted only when copy fallback is explicitly
     enabled
+  - when copy fallback is enabled and symlink creation fails, the installer now
+    materializes and refreshes a real adapter copy from the canonical repo
+    instead of leaving a placeholder directory behind
+- Installer-owned onboarding bootstrap now fails closed on workspace ownership:
+  - a reachable onboarding listener is reused only when local runtime metadata
+    matches the current workspace/Busy checkout and the recorded PID is still
+    alive
+  - a foreign process already listening on the configured onboarding port now
+    raises an explicit conflict instead of being silently reused
 - Browser-open failures remain visible in `busy-installer.log` but no longer
   convert a successful install/repair into a failed launcher exit.
