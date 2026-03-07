@@ -134,6 +134,22 @@ def test_parse_config_rejects_abbreviated_launcher_flags(tmp_path: Path, monkeyp
     assert command[-5:] == ["--work", str(tmp_path / "other"), "--man", "other.yaml", "--allow-copy"]
 
 
+def test_parse_config_honors_double_dash_passthrough_boundary(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    workspace = tmp_path / "env-workspace"
+    _write_manifest(manifest)
+    _run_env_manifest(manifest, monkeypatch)
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    config = parse_config(["install", "--", "--workspace", str(tmp_path / "other")])
+    command = build_installer_command(config)
+
+    assert config.command == "install"
+    assert config.workspace == workspace.resolve()
+    assert config.passthrough == ("--", "--workspace", str(tmp_path / "other"))
+    assert command[-3:] == ["--", "--workspace", str(tmp_path / "other")]
+
+
 def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "manifest.yaml"
     _write_manifest(manifest)
