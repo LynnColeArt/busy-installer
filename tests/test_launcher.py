@@ -112,6 +112,38 @@ def test_parse_config_cli_manifest_resolves_relative_to_caller(tmp_path: Path, m
     assert command[command.index("--manifest") + 1] == str(manifest.resolve())
 
 
+def test_parse_config_manifest_wrapper_false_string_fails_closed(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: "false"
+""",
+    )
+    _run_env_manifest(manifest, monkeypatch)
+
+    config = parse_config([])
+
+    assert config.open_management is False
+
+
+def test_parse_config_manifest_wrapper_invalid_boolean_fails_closed(tmp_path: Path, monkeypatch: object) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: "not-a-bool"
+""",
+    )
+    _run_env_manifest(manifest, monkeypatch)
+
+    config = parse_config([])
+
+    assert config.open_management is False
+
+
 def test_build_installer_command_does_not_duplicate_launcher_owned_flags(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "docs" / "installer-manifest.yaml"
     workspace = tmp_path / "actual"

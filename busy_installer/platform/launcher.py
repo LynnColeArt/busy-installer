@@ -31,6 +31,20 @@ def _read_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on", "y"}
 
 
+def _read_manifest_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on", "y"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "n", ""}:
+            return False
+    return default
+
+
 def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None, str | None]:
     wrappers_open = False
     onboarding_url = None
@@ -50,7 +64,10 @@ def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None, str | None]:
     if not isinstance(wrappers, dict):
         return wrappers_open, onboarding_url, management_url
 
-    wrappers_open = bool(wrappers.get("open_management_on_complete", False))
+    wrappers_open = _read_manifest_bool(
+        wrappers.get("open_management_on_complete", False),
+        default=False,
+    )
     candidate = wrappers.get("onboarding_url")
     if isinstance(candidate, str) and candidate.strip():
         onboarding_url = candidate.strip()

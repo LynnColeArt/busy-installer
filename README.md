@@ -58,6 +58,8 @@ Launcher-owned CLI flags are authoritative when provided:
   launcher reads and the spawned installer process
 - launcher-owned flags are parsed once and removed from passthrough so the
   spawned installer command carries one authoritative workspace/manifest value
+- manifest-owned wrapper booleans are parsed literally, so quoted values like
+  `"false"` fail closed instead of enabling browser-open behavior by truthiness
 
 The launcher also accepts wrapper policy defaults from manifest:
 
@@ -70,6 +72,9 @@ wrappers:
 
 `MANIFEST_UI_OPEN`, `BUSY_INSTALL_ONBOARDING_URL`, and `BUSY_INSTALL_MANAGEMENT_URL`
 override those manifest values.
+
+Manifest-owned wrapper booleans are parsed literally and fail closed on
+malformed values.
 
 Post-install browser routing is onboarding-first:
 
