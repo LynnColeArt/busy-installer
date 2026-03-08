@@ -79,8 +79,10 @@ python -m busy_installer.platform.launcher install
 
 ### Required plugin bootstrap binding checklist
 
-Installer/runtime alignment follows Busy core's required plugin matrix. If a
-required repo or plugin source fails to sync or mount, install must fail closed.
+This checklist is scoped to the bundled installer bootstrap flow, not to every
+repo or plugin Busy may treat as required in other runtime contexts. If one of
+these manifest-owned bootstrap repos or plugin sources fails to sync or mount,
+install must fail closed.
 
 Current required plugin bootstrap binding checklist:
 
