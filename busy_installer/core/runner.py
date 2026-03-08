@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import string
+import sys
 import urllib.parse
 import urllib.request
 import shlex
@@ -551,7 +552,13 @@ class InstallerEngine:
 
     @staticmethod
     def _split_command(command: str) -> list[str]:
-        return shlex.split(command)
+        parts = shlex.split(command)
+        # Manifest-owned workflow commands should reuse the interpreter that is
+        # already running the installer. This fixes Linux hosts without a bare
+        # `python` shim without guessing at any other command token.
+        if parts and parts[0] == "python":
+            parts[0] = sys.executable
+        return parts
 
     @staticmethod
     def _model_target_dir(raw_target: Path) -> Path:
