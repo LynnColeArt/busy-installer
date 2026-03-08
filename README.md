@@ -108,9 +108,12 @@ The bundled manifest now uses explicit installer-owned workflow commands:
 These workflow commands are executed from the install workspace. The installer
 runtime prepends the local `busy-installer` checkout to `PYTHONPATH` so the
 platform launcher works from a plain repo clone without requiring a separate
-editable install first. The onboarding bootstrap command launches the vendored
-web app as a detached background process, then returns only after the local
-HTTP surface is reachable.
+editable install first. Manifest-owned bare `python` commands are also
+normalized to the interpreter that is currently running the installer, so the
+bundled manifest remains portable on hosts that expose `python3` but not a
+bare `python` shim. The onboarding bootstrap command launches the vendored web
+app as a detached background process, then returns only after the local HTTP
+surface is reachable.
 
 Source-of-truth enforcement is now symlink-first by default:
 
@@ -159,12 +162,16 @@ python -m busy_installer.platform.launcher install
 The installer manifest marks required repos with `required: true`. If a required
 repo fails to sync, the install fails.
 
-The current required set includes:
+The current manifest-required repository set includes:
 - `busy38-core`
 - `busy38-gticket`
 - `busy38-doc-ingest` (mandatory during onboarding/document ingestion setup; adapter mount remains `vendor/busy-38-doc-ingest`)
 - `RangeWriter4-a`
 - `Blossom`
+
+This list reflects the bundled installer manifest only. It should not be read
+as a claim about every Busy runtime required-core ownership boundary outside
+installer/bootstrap scope.
 
 The manifest also supports an optional provider-catalog block:
 

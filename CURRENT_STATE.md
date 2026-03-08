@@ -18,12 +18,18 @@
 - Workflow commands now prepend the local `busy-installer` checkout to
   `PYTHONPATH` during execution so launcher-driven installs work from a repo
   clone without requiring a separate editable install.
+- Manifest-owned bare `python` commands now execute through the interpreter
+  that is already running the installer, so the bundled manifest works on
+  Ubuntu/Linux hosts that expose `python3` but not a bare `python` shim.
 - Onboarding bootstrap now launches the vendored web app in a detached
   background process so the first-run surface remains reachable after the
   installer command exits.
 - The bundled manifest now points the required doc-ingest repo at the real
   hosted remote `https://github.com/LynnColeArt/busy38-doc-ingest.git` while
   keeping the Busy adapter mount at `vendor/busy-38-doc-ingest`.
+- Installer docs now describe the bundled manifest's required repository set as
+  installer/bootstrap scope only, instead of overstating it as the full Busy
+  required-core runtime matrix.
 - The bundled manifest now also aligns canonical plugin repo remotes with the
   actual hosted sources:
   - RangeWriter -> `https://github.com/LynnColeArt/rangewriter.git`

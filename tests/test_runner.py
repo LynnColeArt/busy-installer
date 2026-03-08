@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 import yaml
@@ -585,3 +586,63 @@ workflows:
     assert all(value is not None for value in observed_pythonpaths)
     assert all(value.split(os.pathsep)[0] == installer_root for value in observed_pythonpaths if value)
     assert os.environ.get("PYTHONPATH") == original_pythonpath
+
+
+def test_manifest_python_commands_reuse_current_interpreter(tmp_path: Path) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories:
+  - name: busy38-core
+    url: "https://example.com/Busy.git"
+    branch: "main"
+    local_path: "busy-38-ongoing"
+    required: true
+    post_pull_steps:
+      - "python -m pip install -r requirements.txt"
+models: []
+source_of_truth:
+  entries: []
+workflows:
+  onboarding:
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --check-only"
+  smoke:
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --check-only"
+""",
+        encoding="utf-8",
+    )
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    repo_root = workspace / "busy-38-ongoing"
+    repo_root.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+    observed_commands: list[list[str]] = []
+
+    def fake_runner(command: list[str], cwd: Path) -> int:
+        observed_commands.append(command)
+        return 0
+
+    engine = InstallerEngine(
+        manifest=manifest,
+        workspace=workspace,
+        command_runner=fake_runner,
+    )
+
+    engine.run(include_models=False)
+
+    python_commands = [command for command in observed_commands if command and command[0] == sys.executable]
+    assert len(python_commands) == 3
+    assert python_commands[0][:4] == [sys.executable, "-m", "pip", "install"]
+    assert python_commands[1][:3] == [
+        sys.executable,
+        "-m",
+        "busy_installer.platform.onboarding_bootstrap",
+    ]
+    assert python_commands[2][:3] == [
+        sys.executable,
+        "-m",
+        "busy_installer.platform.onboarding_bootstrap",
+    ]
