@@ -6,10 +6,13 @@ import shutil
 import subprocess
 import sys
 import json
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+from . import management_bootstrap
 
 _DEFAULT_ONBOARDING_URL = "http://127.0.0.1:8093"
 _DEFAULT_MANAGEMENT_URL = "http://127.0.0.1:8031"
@@ -106,6 +109,34 @@ def _select_completion_surface(config: "LauncherConfig") -> tuple[str, str | Non
     return "onboarding", config.onboarding_url, onboarding_state
 
 
+def _management_local_binding(url: str | None) -> tuple[str, int] | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").strip().lower()
+    if hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return None
+    default_port = urlparse(_DEFAULT_MANAGEMENT_URL).port or 8031
+    port = parsed.port or default_port
+    return hostname or "127.0.0.1", int(port)
+
+
+def _bootstrap_management_surface(config: "LauncherConfig") -> Path | None:
+    binding = _management_local_binding(config.management_url)
+    if binding is None:
+        return None
+    host, port = binding
+    busy_root = config.workspace / "busy-38-ongoing"
+    management_root = busy_root / "vendor" / "busy-38-management-ui"
+    return management_bootstrap.bootstrap_management(
+        workspace=config.workspace,
+        busy_root=busy_root.resolve(),
+        management_root=management_root.resolve(),
+        host=host,
+        port=port,
+    )
+
+
 @dataclass(frozen=True)
 class LauncherConfig:
     command: str
@@ -118,6 +149,12 @@ class LauncherConfig:
     onboarding_url: str | None
     management_url: str | None
     passthrough: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BrowserOpenResult:
+    returncode: int
+    action: str
 
 
 @dataclass(frozen=True)
@@ -295,26 +332,122 @@ def build_installer_command(config: LauncherConfig) -> list[str]:
     return command
 
 
-def _open_url(url: str) -> int:
+def _user_message(message: str) -> None:
+    print(f"[pillowfort] {message}")
+
+
+def _recovery_command(config: LauncherConfig) -> str:
+    return f"pf --workspace {shlex.quote(str(config.workspace))}"
+
+
+def _log_summary_line(log_path: Path) -> str | None:
+    if not log_path.exists():
+        return None
+    for raw_line in reversed(log_path.read_text(encoding="utf-8").splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("[launcher]"):
+            continue
+        return line
+    return None
+
+
+def _run_osascript(script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["osascript", "-e", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _escape_applescript(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _focus_existing_tab_macos(url: str) -> str | None:
+    browsers = (
+        "Google Chrome",
+        "Brave Browser",
+        "Microsoft Edge",
+        "Arc",
+        "Safari",
+    )
+    escaped_url = _escape_applescript(url)
+    for browser in browsers:
+        escaped_browser = _escape_applescript(browser)
+        if browser == "Safari":
+            script = f'''
+set targetURL to "{escaped_url}"
+set browserName to "{escaped_browser}"
+if application browserName is running then
+  tell application browserName
+    repeat with w in windows
+      repeat with t in tabs of w
+        if (URL of t as text) starts with targetURL then
+          set current tab of w to t
+          set index of w to 1
+          activate
+          return browserName
+        end if
+      end repeat
+    end repeat
+  end tell
+end if
+'''
+        else:
+            script = f'''
+set targetURL to "{escaped_url}"
+set browserName to "{escaped_browser}"
+if application browserName is running then
+  tell application browserName
+    repeat with w in windows
+      set tabIndex to 0
+      repeat with t in tabs of w
+        set tabIndex to tabIndex + 1
+        if (URL of t as text) starts with targetURL then
+          set active tab index of w to tabIndex
+          set index of w to 1
+          activate
+          return browserName
+        end if
+      end repeat
+    end repeat
+  end tell
+end if
+'''
+        result = _run_osascript(script)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    return None
+
+
+def _open_url(url: str) -> BrowserOpenResult:
+    if sys.platform == "darwin":
+        browser = _focus_existing_tab_macos(url)
+        if browser:
+            return BrowserOpenResult(returncode=0, action=f"focused:{browser}")
+        return BrowserOpenResult(returncode=subprocess.call(("open", url)), action="opened")
+
     open_commands: dict[str, tuple[str, ...]] = {
-        "darwin": ("open", url),
         "win32": ("cmd", "/c", "start", "", url),
     }
     if os.name == "nt":
         base_cmd = open_commands["win32"]
-    elif sys.platform == "darwin":
-        base_cmd = open_commands["darwin"]
     else:
         if shutil.which("xdg-open") is None:
-            return 1
+            return BrowserOpenResult(returncode=1, action="missing-opener")
         base_cmd = ("xdg-open", url)
-    return subprocess.call(base_cmd)
+    return BrowserOpenResult(returncode=subprocess.call(base_cmd), action="opened")
 
 
 def run(argv: list[str] | None = None) -> int:
     config = parse_config(argv)
     config.workspace.mkdir(parents=True, exist_ok=True)
     log_path = config.workspace / "busy-installer.log"
+    _user_message(f"Workspace: {config.workspace}")
+    _user_message(f"Running {config.command} workflow...")
 
     installer_command = build_installer_command(config)
     env = os.environ.copy()
@@ -341,10 +474,17 @@ def run(argv: list[str] | None = None) -> int:
 
         if exit_code != 0:
             handle.write(f"[launcher] installer failed with exit code: {exit_code}\n")
-            handle.write(f"[launcher] rerun with `pillowfort-installer repair` for targeted restart.\n")
+            handle.write(f"[launcher] rerun with `{_recovery_command(config)}` for targeted restart.\n")
+            handle.flush()
+            summary = _log_summary_line(log_path)
+            if summary:
+                _user_message(summary)
+            _user_message(f"Recovery: {_recovery_command(config)}")
+            _user_message(f"Log: {log_path}")
             return exit_code
 
         handle.write("[launcher] installer completed successfully\n")
+    _user_message("Setup complete.")
 
     if config.open_management and config.command in {"install", "repair"}:
         surface_name, target_url, onboarding_state = _select_completion_surface(config)
@@ -352,17 +492,46 @@ def run(argv: list[str] | None = None) -> int:
             handle.write(f"[launcher] onboarding_state: {onboarding_state or 'missing-or-incomplete'}\n")
             if not target_url:
                 handle.write(f"[launcher] no {surface_name} URL configured; skipping browser open.\n")
+                _user_message(f"{surface_name.capitalize()} is ready. Browser launch is not configured.")
                 return 0
-            handle.write(f"[launcher] opening {surface_name} URL: {target_url}\n")
-        open_exit = _open_url(target_url)
+            if surface_name == "management":
+                handle.write("[launcher] bootstrapping management surface before browser open\n")
+        if surface_name == "management":
+            try:
+                metadata_path = _bootstrap_management_surface(config)
+            except Exception as exc:
+                with log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(f"[launcher] management bootstrap failed: {exc}\n")
+                _user_message(f"Management UI is not ready: {exc}")
+                _user_message(f"Recovery: {_recovery_command(config)}")
+                _user_message(f"Log: {log_path}")
+                return 1
+            if metadata_path is not None:
+                with log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(f"[launcher] management runtime ready: {metadata_path}\n")
+                _user_message("Management runtime ready.")
         with log_path.open("a", encoding="utf-8") as handle:
-            if open_exit != 0:
+            handle.write(f"[launcher] opening {surface_name} URL: {target_url}\n")
+        _user_message(f"Opening {surface_name}: {target_url}")
+        open_result = _open_url(target_url)
+        with log_path.open("a", encoding="utf-8") as handle:
+            if open_result.returncode != 0:
                 handle.write(
-                    f"[launcher] failed to open {surface_name} URL (rc={open_exit}): {target_url}\n"
+                    f"[launcher] failed to open {surface_name} URL (rc={open_result.returncode}, action={open_result.action}): {target_url}\n"
                 )
+                _user_message(f"Open this URL manually: {target_url}")
             else:
-                handle.write(f"[launcher] opened {surface_name} URL successfully\n")
+                handle.write(
+                    f"[launcher] opened {surface_name} URL successfully (action={open_result.action})\n"
+                )
+                if open_result.action.startswith("focused:"):
+                    browser = open_result.action.split(":", 1)[1]
+                    _user_message(f"Brought the existing {surface_name} tab to the foreground in {browser}.")
+                else:
+                    _user_message(f"{surface_name.capitalize()} opened in your browser.")
         return 0
+    if config.command in {"install", "repair"}:
+        _user_message(f"Reopen with: {_recovery_command(config)}")
     return 0
 
 

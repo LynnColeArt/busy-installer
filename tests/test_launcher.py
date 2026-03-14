@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from busy_installer.platform.launcher import build_installer_command, parse_config, run
+from busy_installer.platform.launcher import BrowserOpenResult, build_installer_command, parse_config, run
 
 
 def _write_manifest(path: Path, wrappers: str = "") -> None:
@@ -360,9 +360,9 @@ wrappers:
         opened.append(" ".join(command))
         return _FakeResult(0)
 
-    def fake_open(url: str) -> int:
+    def fake_open(url: str) -> BrowserOpenResult:
         opened.append(f"OPEN:{url}")
-        return 0
+        return BrowserOpenResult(returncode=0, action="opened")
 
     monkeypatch.setattr("busy_installer.platform.launcher.subprocess.run", fake_run)
     monkeypatch.setattr("busy_installer.platform.launcher._open_url", fake_open)
@@ -404,14 +404,77 @@ wrappers:
         "busy_installer.platform.launcher.subprocess.run",
         lambda *_args, **_kwargs: _FakeResult(0),
     )
+    bootstrap_calls: list[tuple[str, str, str, str, int]] = []
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.management_bootstrap.bootstrap_management",
+        lambda *, workspace, busy_root, management_root, host, port: bootstrap_calls.append(
+            (str(workspace), str(busy_root), str(management_root), host, port)
+        )
+        or (workspace / ".busy" / "management" / "installer-management-runtime.json"),
+    )
     monkeypatch.setattr(
         "busy_installer.platform.launcher._open_url",
-        lambda url: opened.append(f"OPEN:{url}") or 0,
+        lambda url: opened.append(f"OPEN:{url}") or BrowserOpenResult(returncode=0, action="opened"),
     )
 
     exit_code = run(["repair"])
     assert exit_code == 0
+    assert bootstrap_calls == [
+        (
+            str(workspace.resolve()),
+            str((workspace / "busy-38-ongoing").resolve()),
+            str((workspace / "busy-38-ongoing" / "vendor" / "busy-38-management-ui").resolve()),
+            "127.0.0.1",
+            8031,
+        )
+    ]
     assert opened == ["OPEN:http://127.0.0.1:8031/admin"]
+
+
+def test_run_management_bootstrap_failure_is_actionable_and_prevents_browser_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  management_url: "http://127.0.0.1:8031"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    onboarding_state = workspace / ".busy" / "onboarding" / "state.json"
+    onboarding_state.parent.mkdir(parents=True, exist_ok=True)
+    onboarding_state.write_text('{"state":"ACTIVE"}\n', encoding="utf-8")
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.management_bootstrap.bootstrap_management",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("management UI checkout not found")),
+    )
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("browser should not open")),
+    )
+
+    exit_code = run(["repair"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "Management UI is not ready: management UI checkout not found" in output
+    assert "Recovery: pf --workspace" in output
 
 
 def test_run_failure_prevents_management_launch(tmp_path: Path, monkeypatch: object) -> None:
@@ -433,7 +496,10 @@ wrappers:
             self.returncode = returncode
 
     monkeypatch.setattr("busy_installer.platform.launcher.subprocess.run", lambda *_args, **_kwargs: _FakeResult(9))
-    monkeypatch.setattr("busy_installer.platform.launcher._open_url", lambda *_args: opened.append("open-called") or 7)
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda *_args: opened.append("open-called") or BrowserOpenResult(returncode=7, action="opened"),
+    )
 
     exit_code = run(["repair"])
     assert exit_code == 9
@@ -462,15 +528,126 @@ wrappers:
         "busy_installer.platform.launcher.subprocess.run",
         lambda *_args, **_kwargs: _FakeResult(0),
     )
-    monkeypatch.setattr("busy_installer.platform.launcher._open_url", lambda *_args: 7)
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda *_args: BrowserOpenResult(returncode=7, action="missing-opener"),
+    )
 
     exit_code = run(["install"])
     assert exit_code == 0
     text = (workspace / "busy-installer.log").read_text(encoding="utf-8")
-    assert "failed to open onboarding URL (rc=7)" in text
+    assert "failed to open onboarding URL (rc=7, action=missing-opener)" in text
 
 
-def test_wrapper_scripts_target_launcher_entrypoint() -> None:
+def test_run_prints_high_signal_recovery_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(manifest)
+    workspace = tmp_path / "pillowfort"
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    def fake_run(_command: list[str], **kwargs) -> _FakeResult:
+        handle = kwargs["stdout"]
+        handle.write("Install failed: boom\n")
+        return _FakeResult(4)
+
+    monkeypatch.setattr("busy_installer.platform.launcher.subprocess.run", fake_run)
+
+    exit_code = run(["repair"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 4
+    assert "[pillowfort] Install failed: boom" in output
+    assert "Recovery: pf --workspace" in output
+    assert "Log:" in output
+
+
+def test_run_prints_manual_url_when_browser_open_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda *_args: BrowserOpenResult(returncode=7, action="missing-opener"),
+    )
+
+    exit_code = run(["repair"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Opening onboarding: http://127.0.0.1:8093/start" in output
+    assert "Open this URL manually: http://127.0.0.1:8093/start" in output
+
+
+def test_run_prints_focus_message_when_existing_browser_tab_is_reused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda *_args: BrowserOpenResult(returncode=0, action="focused:Google Chrome"),
+    )
+
+    exit_code = run(["repair"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Brought the existing onboarding tab to the foreground in Google Chrome." in output
+
+
+def test_platform_wrapper_scripts_target_app_entrypoint() -> None:
     from pathlib import Path
 
     base = Path(__file__).resolve().parents[1] / "busy_installer" / "platform"
@@ -478,6 +655,12 @@ def test_wrapper_scripts_target_launcher_entrypoint() -> None:
     macos = (base / "macos" / "launcher.command").read_text(encoding="utf-8")
     windows = (base / "windows" / "launcher.ps1").read_text(encoding="utf-8")
 
-    assert "busy_installer.platform.launcher" in linux
-    assert "busy_installer.platform.launcher" in macos
-    assert "busy_installer.platform.launcher" in windows
+    assert "bootstrap_env.py" in linux
+    assert "bootstrap_env.py" in macos
+    assert "bootstrap_env.py" in windows
+    assert "busy_installer.app" in linux
+    assert "busy_installer.app" in macos
+    assert "busy_installer.app" in windows
+    assert ".venv/bin/python" in linux
+    assert ".venv/bin/python" in macos
+    assert ".venv\\Scripts\\python.exe" in windows
