@@ -66,9 +66,11 @@ def test_bundled_manifest_uses_onboarding_bootstrap_helper_and_current_ports() -
     payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
 
     workflows = payload["workflows"]
+    models = payload["models"]
     wrappers = payload["wrappers"]
     core_repo = next(repo for repo in payload["repositories"] if repo["name"] == "busy38-core")
     doc_ingest_repo = next(repo for repo in payload["repositories"] if repo["name"] == "busy38-doc-ingest")
+    management_repo = next(repo for repo in payload["repositories"] if repo["name"] == "busy38-management-ui")
     rangewriter_repo = next(repo for repo in payload["repositories"] if repo["name"] == "RangeWriter4-a")
     blossom_repo = next(repo for repo in payload["repositories"] if repo["name"] == "Blossom")
 
@@ -80,10 +82,15 @@ def test_bundled_manifest_uses_onboarding_bootstrap_helper_and_current_ports() -
         workflows["smoke"]["command"]
         == "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093 --check-only"
     )
+    assert models == []
     assert wrappers["onboarding_url"] == "http://127.0.0.1:8093"
     assert wrappers["management_url"] == "http://127.0.0.1:8031"
     assert core_repo["post_pull_steps"] == ["python -m pip install -r requirements.txt"]
     assert doc_ingest_repo["url"] == "https://github.com/LynnColeArt/busy38-doc-ingest.git"
     assert doc_ingest_repo["local_path"] == "busy-38-ongoing/vendor/busy-38-doc-ingest"
+    assert management_repo["url"] == "https://github.com/LynnColeArt/busy38-management-ui.git"
+    assert management_repo["branch"] == "fix/installer-management-ui-root"
+    assert management_repo["local_path"] == "busy-38-ongoing/vendor/busy-38-management-ui"
+    assert management_repo["post_pull_steps"] == ["python -m pip install -r backend/requirements.txt"]
     assert rangewriter_repo["url"] == "https://github.com/LynnColeArt/rangewriter.git"
     assert blossom_repo["url"] == "https://github.com/LynnColeArt/blossom.git"

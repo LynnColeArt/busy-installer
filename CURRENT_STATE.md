@@ -1,5 +1,63 @@
 # Current State
 
+## 2026-03-13
+
+- Management UI startup is now installer-owned instead of best-effort URL
+  guessing:
+  - the bundled manifest now syncs `busy38-management-ui` into
+    `busy-38-ongoing/vendor/busy-38-management-ui`
+  - until the same-origin browser-root fix lands on the default
+    `busy38-management-ui` branch, the bundled manifest pins that repo to the
+    reviewed `fix/installer-management-ui-root` branch so a fresh installer run
+    still clones a browser-capable management UI
+  - repo sync installs management backend requirements with
+    `python -m pip install -r backend/requirements.txt`
+  - once onboarding state reaches `ACTIVE`, launcher bootstraps the management
+    runtime, waits for `GET /api/health` on `127.0.0.1:8031`, and only then
+    opens the browser
+  - if management bootstrap fails, launcher exits non-zero instead of opening a
+    dead loopback URL
+- Repo-local user entrypoints now exist as `./pf`, `./pillowfort`, and `./busy`
+  (plus Windows `.cmd` / PowerShell equivalents), and installed console
+  entrypoints now also expose `pf`, `pillowfort`, and `busy`.
+  Repo-local wrappers/platform launchers own `.venv` bootstrap; installed
+  console scripts run inside the environment where the package is already
+  installed.
+- The default user-facing path is now maintenance-first:
+  - no-arg entrypoints route through `repair`
+  - fresh workspaces still complete a full install because `repair` falls back
+    to the full install flow when no failed step exists yet
+  - existing workspaces now always get a health/update/self-heal pass before
+    the onboarding or management surface is reopened
+- Platform launchers now prefer the repo-local `.venv` interpreter when it is
+  present and only fall back to system Python when the repo venv is absent.
+- Platform launchers now bootstrap the repo-local `.venv` automatically before
+  launching the high-level app path.
+- Launcher console output is now low-noise and high-signal:
+  - workspace + lifecycle status are printed directly to the terminal
+  - failures print a direct recovery command and log path
+  - browser-launch paths print the exact onboarding/management URL
+- Browser launch now makes a best-effort foreground/focus pass instead of being
+  fire-and-forget only; on macOS supported browsers also get a best-effort
+  existing-tab focus attempt before a new tab is opened.
+- Local-machine management URL overrides are now broader than pure loopback:
+  wildcard bind (`0.0.0.0`) and this machine's hostname/IP now still trigger
+  installer-owned management bootstrap instead of silently skipping it.
+- The bundled manifest's canonical source bindings are now optional by default,
+  so a fresh machine no longer needs pre-existing `~/projects/*` checkouts
+  before the first user-facing run succeeds.
+- Local bootstrap now has a single repo-owned entrypoint:
+  `python3 scripts/bootstrap_env.py`
+- The repo now carries a reviewed dependency lock for the local `.venv` path in
+  `requirements-dev.lock`.
+- A repo-owned smoke harness now exercises the bundled manifest through the
+  real high-level app/launcher/CLI dry-run path in an isolated temp workspace and ephemeral
+  home directory.
+- The bundled installer manifest no longer ships with a placeholder model
+  checksum that forced local validation to pass `--skip-models`.
+- Wrapper/platform documentation is now aligned around the actual
+  onboarding-first completion routing behavior.
+
 ## 2026-03-06
 
 - Installer wrapper browser-launch behavior now routes to the correct first-run
@@ -34,14 +92,13 @@
   actual hosted sources:
   - RangeWriter -> `https://github.com/LynnColeArt/rangewriter.git`
   - Blossom -> `https://github.com/LynnColeArt/blossom.git`
-- Full scratch validation now passes with the bundled manifest when model
-  staging is skipped:
+- Full scratch validation now passes with the bundled manifest:
   - install opens onboarding at `http://127.0.0.1:8093`
   - the onboarding HTTP surface remains reachable after launcher exit
   - repair opens management at `http://127.0.0.1:8031` once onboarding state is
     `ACTIVE`
-- Required source-of-truth bindings now enforce the documented symlink-first
-  policy:
+- The installer engine now enforces the documented symlink-first source-of-truth
+  policy when bindings are marked required or strict mode is enabled:
   - required adapter mounts are remounted to canonical symlinks during install
     and repair
   - copied adapter mounts are accepted only when copy fallback is explicitly
@@ -88,3 +145,12 @@
     command is built,
   - launcher logs, onboarding-state reads, browser routing, and spawned
     installer invocation now use the same resolved workspace.
+
+## Deferred Recommendations
+
+- Add CI coverage for the repo-local `.venv` path across Linux, macOS, and
+  Windows so `python -m venv .venv`, `python -m pip install -e '.[dev]'`, and
+  `python -m pytest -q` are exercised automatically.
+- Do not implement CI or workflow changes in this repo without Lynn Cole's
+  involvement. This constraint applies to future CI/workflow decisions across
+  repos.
