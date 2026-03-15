@@ -82,6 +82,12 @@
     opens the browser
   - if management bootstrap fails, launcher exits non-zero instead of opening a
     dead loopback URL
+- The repo's plugin-local management UI surface is now test-backed:
+  - `ui/manifest.json` declares installer-owned docs/diagnostics sections
+  - `ui/actions.py` provides the installer debug action handler for
+    `/api/plugins/{plugin_id}/ui/debug`
+  - the older Busy roadmap note that listed `busy-installer` as lacking a
+    local `/ui` surface is stale relative to this checkout
 - Repo-local user entrypoints now exist as `./pf`, `./pillowfort`, and `./busy`
   (plus Windows `.cmd` / PowerShell equivalents), and installed console
   entrypoints now also expose `pf`, `pillowfort`, and `busy`.
@@ -118,6 +124,12 @@
 - A repo-owned smoke harness now exercises the bundled manifest through the
   real high-level app/launcher/CLI dry-run path in an isolated temp workspace and ephemeral
   home directory.
+- The repo now also carries a repo-owned release-smoke command plus a manual
+  per-OS smoke matrix:
+  - `python scripts/release_smoke.py --print-matrix`
+  - `python scripts/release_smoke.py --current-platform --skip-bootstrap`
+  - CI/workflow automation for this matrix remains deferred pending Lynn Cole's
+    involvement.
 - The bundled installer manifest no longer ships with a placeholder model
   checksum that forced local validation to pass `--skip-models`.
 - Wrapper/platform documentation is now aligned around the actual
