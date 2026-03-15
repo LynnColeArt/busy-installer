@@ -6,6 +6,10 @@
   guessing:
   - the bundled manifest now syncs `busy38-management-ui` into
     `busy-38-ongoing/vendor/busy-38-management-ui`
+  - until the same-origin browser-root fix lands on the default
+    `busy38-management-ui` branch, the bundled manifest pins that repo to the
+    reviewed `fix/installer-management-ui-root` branch so a fresh installer run
+    still clones a browser-capable management UI
   - repo sync installs management backend requirements with
     `python -m pip install -r backend/requirements.txt`
   - once onboarding state reaches `ACTIVE`, launcher bootstraps the management
@@ -16,6 +20,9 @@
 - Repo-local user entrypoints now exist as `./pf`, `./pillowfort`, and `./busy`
   (plus Windows `.cmd` / PowerShell equivalents), and installed console
   entrypoints now also expose `pf`, `pillowfort`, and `busy`.
+  Repo-local wrappers/platform launchers own `.venv` bootstrap; installed
+  console scripts run inside the environment where the package is already
+  installed.
 - The default user-facing path is now maintenance-first:
   - no-arg entrypoints route through `repair`
   - fresh workspaces still complete a full install because `repair` falls back
@@ -33,6 +40,9 @@
 - Browser launch now makes a best-effort foreground/focus pass instead of being
   fire-and-forget only; on macOS supported browsers also get a best-effort
   existing-tab focus attempt before a new tab is opened.
+- Local-machine management URL overrides are now broader than pure loopback:
+  wildcard bind (`0.0.0.0`) and this machine's hostname/IP now still trigger
+  installer-owned management bootstrap instead of silently skipping it.
 - The bundled manifest's canonical source bindings are now optional by default,
   so a fresh machine no longer needs pre-existing `~/projects/*` checkouts
   before the first user-facing run succeeds.
