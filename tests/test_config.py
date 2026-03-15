@@ -89,6 +89,7 @@ def test_bundled_manifest_uses_onboarding_bootstrap_helper_and_current_ports() -
     assert doc_ingest_repo["url"] == "https://github.com/LynnColeArt/busy38-doc-ingest.git"
     assert doc_ingest_repo["local_path"] == "busy-38-ongoing/vendor/busy-38-doc-ingest"
     assert management_repo["url"] == "https://github.com/LynnColeArt/busy38-management-ui.git"
+    assert management_repo["branch"] == "fix/installer-management-ui-root"
     assert management_repo["local_path"] == "busy-38-ongoing/vendor/busy-38-management-ui"
     assert management_repo["post_pull_steps"] == ["python -m pip install -r backend/requirements.txt"]
     assert rangewriter_repo["url"] == "https://github.com/LynnColeArt/rangewriter.git"

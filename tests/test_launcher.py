@@ -5,6 +5,7 @@ import sys
 
 import pytest
 
+from busy_installer.platform import launcher
 from busy_installer.platform.launcher import BrowserOpenResult, build_installer_command, parse_config, run
 
 
@@ -69,6 +70,35 @@ wrappers:
     assert config.open_management is False
     assert config.onboarding_url == "http://127.0.0.1:7777/onboarding"
     assert config.management_url == "http://127.0.0.1:9999/ops"
+
+
+def test_management_local_binding_accepts_wildcard_local_host() -> None:
+    binding = launcher._management_local_binding("http://0.0.0.0:8031/admin")
+
+    assert binding == launcher.ManagementLocalBinding(
+        bind_host="0.0.0.0",
+        health_host="127.0.0.1",
+        port=8031,
+    )
+
+
+def test_management_local_binding_accepts_local_machine_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launcher, "_local_machine_addresses", lambda: frozenset({"127.0.0.1", "192.168.1.44"}))
+
+    binding = launcher._management_local_binding("http://192.168.1.44:8031/admin")
+
+    assert binding == launcher.ManagementLocalBinding(
+        bind_host="192.168.1.44",
+        health_host="192.168.1.44",
+        port=8031,
+    )
+
+
+def test_management_local_binding_rejects_remote_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launcher, "_local_machine_names", lambda: frozenset({"localhost", "sam-laptop"}))
+    monkeypatch.setattr(launcher, "_local_machine_addresses", lambda: frozenset({"127.0.0.1", "::1"}))
+
+    assert launcher._management_local_binding("http://host.docker.internal:8031/admin") is None
 
 
 def test_build_installer_command_includes_passthrough_and_flags(tmp_path: Path, monkeypatch: object) -> None:
@@ -407,8 +437,8 @@ wrappers:
     bootstrap_calls: list[tuple[str, str, str, str, int]] = []
     monkeypatch.setattr(
         "busy_installer.platform.launcher.management_bootstrap.bootstrap_management",
-        lambda *, workspace, busy_root, management_root, host, port: bootstrap_calls.append(
-            (str(workspace), str(busy_root), str(management_root), host, port)
+        lambda *, workspace, busy_root, management_root, host, health_host, port: bootstrap_calls.append(
+            (str(workspace), str(busy_root), str(management_root), host, health_host, port)
         )
         or (workspace / ".busy" / "management" / "installer-management-runtime.json"),
     )
@@ -424,6 +454,7 @@ wrappers:
             str(workspace.resolve()),
             str((workspace / "busy-38-ongoing").resolve()),
             str((workspace / "busy-38-ongoing" / "vendor" / "busy-38-management-ui").resolve()),
+            "127.0.0.1",
             "127.0.0.1",
             8031,
         )

@@ -156,6 +156,7 @@ def _write_runtime_metadata(
     busy_root: Path,
     management_root: Path,
     host: str,
+    health_host: str,
     port: int,
     log_path: Path,
     payload: dict[str, Any] | None,
@@ -166,10 +167,12 @@ def _write_runtime_metadata(
     runtime_dir.mkdir(parents=True, exist_ok=True)
     metadata = {
         "url": f"http://{host}:{int(port)}/",
-        "health_url": _health_url(host, port),
+        "health_url": _health_url(health_host, port),
         "workspace": str(workspace),
         "busy_root": str(busy_root),
         "management_root": str(management_root),
+        "bind_host": str(host),
+        "health_host": str(health_host),
         "log_path": str(log_path),
         "database_path": str(_database_path(workspace)),
         "pid": pid,
@@ -256,21 +259,23 @@ def bootstrap_management(
     busy_root: Path,
     management_root: Path,
     host: str = _DEFAULT_HOST,
+    health_host: str | None = None,
     port: int = _DEFAULT_PORT,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     check_only: bool = False,
 ) -> Path:
     _validate_paths(workspace=workspace, busy_root=busy_root, management_root=management_root)
+    effective_health_host = str(health_host or host).strip() or host
     runtime_dir = _runtime_dir(workspace)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     log_path = _runtime_log_path(workspace)
     if not log_path.exists():
         log_path.touch()
 
-    ok, probe_result = _probe_management_health(host, port)
+    ok, probe_result = _probe_management_health(effective_health_host, port)
     if ok:
         metadata = _read_runtime_metadata(workspace)
-        expected_health_url = _health_url(host, port)
+        expected_health_url = _health_url(effective_health_host, port)
         if metadata is None:
             raise RuntimeError(
                 f"management surface already reachable at {expected_health_url}, but current workspace has no runtime metadata to prove ownership"
@@ -294,6 +299,7 @@ def bootstrap_management(
             busy_root=busy_root,
             management_root=management_root,
             host=host,
+            health_host=effective_health_host,
             port=port,
             log_path=log_path,
             payload=probe_result if isinstance(probe_result, dict) else None,
@@ -302,7 +308,9 @@ def bootstrap_management(
         )
 
     if check_only:
-        raise RuntimeError(f"management surface not reachable at {_health_url(host, port)}: {probe_result}")
+        raise RuntimeError(
+            f"management surface not reachable at {_health_url(effective_health_host, port)}: {probe_result}"
+        )
 
     proc = _spawn_management_server(
         workspace=workspace,
@@ -319,13 +327,14 @@ def bootstrap_management(
                 raise RuntimeError(
                     f"management process exited before becoming ready (rc={proc.returncode}); see {_runtime_log_path(workspace)}"
                 )
-            ok, probe_result = _probe_management_health(host, port)
+            ok, probe_result = _probe_management_health(effective_health_host, port)
             if ok:
                 return _write_runtime_metadata(
                     workspace=workspace,
                     busy_root=busy_root,
                     management_root=management_root,
                     host=host,
+                    health_host=effective_health_host,
                     port=port,
                     log_path=log_path,
                     payload=probe_result if isinstance(probe_result, dict) else None,

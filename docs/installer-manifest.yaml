@@ -33,7 +33,7 @@ repositories:
     required: true
   - name: busy38-management-ui
     url: "https://github.com/LynnColeArt/busy38-management-ui.git"
-    branch: "main"
+    branch: "fix/installer-management-ui-root"
     local_path: "busy-38-ongoing/vendor/busy-38-management-ui"
     required: true
     post_pull_steps:

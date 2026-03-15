@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import json
 from urllib.parse import urlparse
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -109,31 +112,77 @@ def _select_completion_surface(config: "LauncherConfig") -> tuple[str, str | Non
     return "onboarding", config.onboarding_url, onboarding_state
 
 
-def _management_local_binding(url: str | None) -> tuple[str, int] | None:
+@dataclass(frozen=True)
+class ManagementLocalBinding:
+    bind_host: str
+    health_host: str
+    port: int
+
+
+@lru_cache(maxsize=1)
+def _local_machine_names() -> frozenset[str]:
+    names = {"localhost"}
+    for raw_name in (socket.gethostname(), socket.getfqdn()):
+        normalized = str(raw_name or "").strip().lower().rstrip(".")
+        if normalized:
+            names.add(normalized)
+    return frozenset(names)
+
+
+@lru_cache(maxsize=1)
+def _local_machine_addresses() -> frozenset[str]:
+    addresses = {"127.0.0.1", "::1"}
+    for name in _local_machine_names():
+        try:
+            resolved = socket.getaddrinfo(name, None)
+        except OSError:
+            continue
+        for _family, _socktype, _proto, _canonname, sockaddr in resolved:
+            host = str(sockaddr[0] or "").strip()
+            if not host:
+                continue
+            try:
+                addresses.add(str(ipaddress.ip_address(host)))
+            except ValueError:
+                continue
+    return frozenset(addresses)
+
+
+def _management_local_binding(url: str | None) -> ManagementLocalBinding | None:
     if not url:
         return None
     parsed = urlparse(url)
-    hostname = (parsed.hostname or "").strip().lower()
-    if hostname not in {"127.0.0.1", "localhost", "::1"}:
+    hostname = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not hostname:
         return None
     default_port = urlparse(_DEFAULT_MANAGEMENT_URL).port or 8031
     port = parsed.port or default_port
-    return hostname or "127.0.0.1", int(port)
+    if hostname in {"0.0.0.0", "::", "0:0:0:0:0:0:0:0"}:
+        return ManagementLocalBinding(bind_host=hostname, health_host="127.0.0.1", port=int(port))
+    if hostname in _local_machine_names():
+        return ManagementLocalBinding(bind_host=hostname, health_host=hostname, port=int(port))
+    try:
+        normalized_ip = str(ipaddress.ip_address(hostname))
+    except ValueError:
+        return None
+    if normalized_ip in _local_machine_addresses():
+        return ManagementLocalBinding(bind_host=hostname, health_host=hostname, port=int(port))
+    return None
 
 
 def _bootstrap_management_surface(config: "LauncherConfig") -> Path | None:
     binding = _management_local_binding(config.management_url)
     if binding is None:
         return None
-    host, port = binding
     busy_root = config.workspace / "busy-38-ongoing"
     management_root = busy_root / "vendor" / "busy-38-management-ui"
     return management_bootstrap.bootstrap_management(
         workspace=config.workspace,
         busy_root=busy_root.resolve(),
         management_root=management_root.resolve(),
-        host=host,
-        port=port,
+        host=binding.bind_host,
+        health_host=binding.health_host,
+        port=binding.port,
     )
 
 

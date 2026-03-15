@@ -35,7 +35,8 @@ The command line stays intentionally quiet, but it does surface:
 - the exact onboarding or management URL when a browser needs to be opened or
   reopened manually
 
-Installed console entrypoints also expose the same behavior:
+Installed console entrypoints also expose the same maintenance-first app
+behavior once the package is installed into an environment:
 
 ```bash
 pf
@@ -45,6 +46,10 @@ busy
 
 Repo-local Windows front doors are also available as `pf.cmd`,
 `pillowfort.cmd`, `busy.cmd`, `pf.ps1`, `pillowfort.ps1`, and `busy.ps1`.
+
+The repo-local `.venv` bootstrap is wrapper-owned. Installed console scripts run
+inside the interpreter/environment where `pillowfort-installer` was installed;
+they do not create a repo-local `.venv`.
 
 Use the repo bootstrap directly when you want a dev/test environment:
 
@@ -85,7 +90,7 @@ Optional environment controls:
 - `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` (permit copied adapter mounts when symlinks unavailable)
 - `MANIFEST_UI_OPEN=1` (open local web UI when available)
 - `BUSY_INSTALL_ONBOARDING_URL` (override `onboarding_url` from manifest `wrappers`)
-- `BUSY_INSTALL_MANAGEMENT_URL` (override `management_url` from manifest `wrappers`)
+- `BUSY_INSTALL_MANAGEMENT_URL` (override `management_url` from manifest `wrappers` when it still targets this machine, such as `localhost`, `127.0.0.1`, `0.0.0.0`, or this machine's hostname/IP)
 - `BUSY_INSTALL_SKIP_MODELS=1` (skip model staging during install/re-install)
 
 The launcher runs the local checkout directly and writes logs to
@@ -167,6 +172,10 @@ Management is now installer-owned too:
 
 - the bundled manifest syncs `busy38-management-ui` into
   `busy-38-ongoing/vendor/busy-38-management-ui`
+- until the same-origin browser-root fix is merged on the default
+  `busy38-management-ui` branch, the bundled manifest pins that repo to the
+  reviewed `fix/installer-management-ui-root` branch so fresh installs remain
+  self-consistent
 - repo sync installs the management backend requirements into the active
   launcher interpreter with
   `python -m pip install -r backend/requirements.txt`

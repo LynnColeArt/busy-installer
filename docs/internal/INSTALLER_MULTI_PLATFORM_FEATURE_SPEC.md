@@ -20,8 +20,10 @@ deterministic and browser launch behavior non-blocking.
 User-facing entrypoints must route to `busy_installer.app`.
 The app may delegate to `busy_installer.platform.launcher`, but launcher is an
 implementation detail rather than the primary user contract.
-When the repo-local `.venv` does not exist, user-facing entrypoints should
-bootstrap it automatically before launching the app.
+Repo-local wrappers and platform launchers should bootstrap the repo-local
+`.venv` automatically before launching the app.
+Installed console scripts run inside their existing interpreter and are not
+required to create a repo-local `.venv`.
 
 ## Required Behavior Matrix
 
@@ -40,17 +42,25 @@ bootstrap it automatically before launching the app.
   - `wrappers.onboarding_url`
   - `wrappers.management_url`
 - User-facing entrypoints must be self-bootstrapping:
-  - create/update the repo-local `.venv` when needed
-  - install the pinned runtime dependency set before app launch
+  - repo-local wrappers/platform launchers create/update the repo-local `.venv`
+    when needed
+  - installed console scripts run inside the environment where the package is
+    already installed
+  - repo-local wrappers/platform launchers install the pinned runtime
+    dependency set before app launch
 - Env variables override manifest where present:
   - `MANIFEST_UI_OPEN`
   - `BUSY_INSTALL_ONBOARDING_URL`
-  - `BUSY_INSTALL_MANAGEMENT_URL`
+  - `BUSY_INSTALL_MANAGEMENT_URL` when it still identifies the local machine
+    (`localhost`, loopback, wildcard bind, or this machine's hostname/IP)
 - Installer execution and logging must remain authoritative:
   - successful maintenance/install writes `install` log entry
   - failing install/repair returns non-zero and does not attempt browser launch
 - Bundled repo sync must materialize the management runtime:
   - `busy38-management-ui` is synced into `busy-38-ongoing/vendor/busy-38-management-ui`
+  - until the same-origin root-serving fix is on the default management-ui
+    branch, the bundled manifest may pin the repo to the reviewed branch that
+    contains that fix so fresh installs remain self-consistent
   - repo sync installs management backend requirements with
     `python -m pip install -r backend/requirements.txt`
 - Command-line UX must stay low-noise and high-signal:

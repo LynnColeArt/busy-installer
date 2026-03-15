@@ -31,6 +31,7 @@ def test_bootstrap_management_reuses_existing_surface(tmp_path: Path, monkeypatc
         busy_root=busy_root,
         management_root=management_root,
         host="127.0.0.1",
+        health_host="127.0.0.1",
         port=8031,
         log_path=log_path,
         payload={"status": "ok", "service": "busy38-management-ui", "runtime_connected": True},
@@ -72,6 +73,7 @@ def test_bootstrap_management_rejects_foreign_reachable_surface(tmp_path: Path, 
         busy_root=tmp_path / "other-workspace" / "busy-38-ongoing",
         management_root=tmp_path / "other-workspace" / "busy-38-ongoing" / "vendor" / "busy-38-management-ui",
         host="127.0.0.1",
+        health_host="127.0.0.1",
         port=8031,
         log_path=log_path,
         payload={"status": "ok", "service": "busy38-management-ui", "runtime_connected": False},
@@ -168,6 +170,54 @@ def test_bootstrap_management_spawns_server_and_waits_for_ready(tmp_path: Path, 
     assert payload["pid"] == 43210
     assert payload["service"] == "busy38-management-ui"
     assert Path(payload["log_path"]).exists()
+
+
+def test_bootstrap_management_supports_distinct_health_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, busy_root, management_root = _create_workspace(tmp_path)
+    responses = iter(
+        [
+            (False, "connection refused"),
+            (True, {"status": "ok", "service": "busy38-management-ui", "runtime_connected": True}),
+        ]
+    )
+    probe_calls: list[tuple[str, int, float]] = []
+
+    class _FakeProcess:
+        pid = 54321
+        returncode = None
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        management_bootstrap,
+        "_probe_management_health",
+        lambda host, port, *, timeout_seconds=1.0: probe_calls.append((host, port, timeout_seconds)) or next(responses),
+    )
+    monkeypatch.setattr(management_bootstrap.subprocess, "Popen", lambda *_args, **_kwargs: _FakeProcess())
+    monkeypatch.setattr(management_bootstrap.time, "sleep", lambda *_args, **_kwargs: None)
+
+    metadata_path = management_bootstrap.bootstrap_management(
+        workspace=workspace,
+        busy_root=busy_root,
+        management_root=management_root,
+        host="0.0.0.0",
+        health_host="127.0.0.1",
+    )
+
+    assert probe_calls[0][:2] == ("127.0.0.1", 8031)
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["url"] == "http://0.0.0.0:8031/"
+    assert payload["health_url"] == "http://127.0.0.1:8031/api/health"
 
 
 def test_bootstrap_management_fails_when_spawned_process_exits_early(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
