@@ -156,7 +156,12 @@ def _management_local_binding(url: str | None) -> ManagementLocalBinding | None:
     if not hostname:
         return None
     default_port = urlparse(_DEFAULT_MANAGEMENT_URL).port or 8031
-    port = parsed.port or default_port
+    try:
+        port = parsed.port or default_port
+    except ValueError:
+        # Invalid management URLs should not crash launcher flow; treat them as
+        # non-local and keep browser launch behavior unchanged.
+        return None
     if hostname in {"0.0.0.0", "::", "0:0:0:0:0:0:0:0"}:
         return ManagementLocalBinding(bind_host=hostname, health_host="127.0.0.1", port=int(port))
     if hostname in _local_machine_names():
