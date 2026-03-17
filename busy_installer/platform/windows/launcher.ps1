@@ -19,5 +19,9 @@ if (-not $python) {
 }
 
 & $python $Bootstrap | Out-Null
+if (-not (Test-Path $VenvPython)) {
+  throw "bootstrap completed but $VenvPython is missing."
+}
+
 $env:PYTHONPATH = "$($Root.Path)$([System.IO.Path]::PathSeparator)$env:PYTHONPATH".TrimEnd([System.IO.Path]::PathSeparator)
 & $VenvPython -m busy_installer.app @args
