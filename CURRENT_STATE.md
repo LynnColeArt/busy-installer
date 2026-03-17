@@ -1,5 +1,15 @@
 # Current State
 
+## 2026-03-17
+
+- Repo-root entrypoint wrappers are now hardening-consistent with platform launchers:
+  - `pf`, `pillowfort`, and `busy` (and `.cmd`/`.ps1` variants) now prefer an
+    existing repo-local venv interpreter for bootstrap when it is executable.
+  - They now fall back to `python3` only when the repo-local venv interpreter is
+    unavailable.
+  - After bootstrap runs, wrappers now fail explicitly if `.venv/bin/python` /
+    `.venv/Scripts/python.exe` is still missing, instead of silently continuing.
+
 ## 2026-03-13
 
 - Management UI startup is now installer-owned instead of best-effort URL
