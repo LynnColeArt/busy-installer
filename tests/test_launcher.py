@@ -101,6 +101,10 @@ def test_management_local_binding_rejects_remote_host(monkeypatch: pytest.Monkey
     assert launcher._management_local_binding("http://host.docker.internal:8031/admin") is None
 
 
+def test_management_local_binding_rejects_invalid_url() -> None:
+    assert launcher._management_local_binding("http://127.0.0.1:bad-port/admin") is None
+
+
 def test_build_installer_command_includes_passthrough_and_flags(tmp_path: Path, monkeypatch: object) -> None:
     manifest = tmp_path / "docs" / "installer-manifest.yaml"
     _write_manifest(manifest)
