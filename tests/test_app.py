@@ -54,3 +54,21 @@ def test_root_bootstrap_wrappers_target_app_entrypoint() -> None:
     for text in (pf, pillowfort, busy, pf_cmd, pillowfort_cmd, busy_cmd, pf_ps1, pillowfort_ps1, busy_ps1):
         assert "bootstrap_env.py" in text
         assert "busy_installer.app" in text
+
+    for text in (pf, pillowfort, busy):
+        assert "VENV_PYTHON=\"" in text
+        assert "BOOTSTRAP_PYTHON" in text
+        assert "if [[ -x \"${VENV_PYTHON}\" ]]" in text
+        assert "bootstrap completed but ${VENV_PYTHON} is missing." in text
+
+    for text in (pf_cmd, pillowfort_cmd, busy_cmd):
+        assert "set VENV_PYTHON=%ROOT%.venv\\Scripts\\python.exe" in text
+        assert "if exist \"%VENV_PYTHON%\"" in text
+        assert "\"%PYTHON%\" \"%BOOTSTRAP%\" >nul" in text
+        assert "bootstrap completed but %VENV_PYTHON% is missing." in text
+
+    for text in (pf_ps1, pillowfort_ps1, busy_ps1):
+        assert "if (Test-Path $VenvPython)" in text
+        assert "& $python $Bootstrap | Out-Null" in text
+        assert "if (-not (Test-Path $VenvPython))" in text
+        assert "bootstrap completed but $VenvPython is missing." in text
