@@ -466,6 +466,54 @@ wrappers:
     assert opened == ["OPEN:http://127.0.0.1:8031/admin"]
 
 
+def test_run_skips_management_bootstrap_on_invalid_local_management_url(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093/start"
+  management_url: "http://127.0.0.1:bad-port/admin"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    onboarding_state = workspace / ".busy" / "onboarding" / "state.json"
+    onboarding_state.parent.mkdir(parents=True, exist_ok=True)
+    onboarding_state.write_text('{"state":"ACTIVE"}\n', encoding="utf-8")
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    bootstrap_calls: list[tuple[str, str, str, str, int]] = []
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.management_bootstrap.bootstrap_management",
+        lambda **_kwargs: bootstrap_calls.append(("bootstrap should not run") )
+        or (_ for _ in ()).throw(AssertionError("management bootstrap should not run")),
+    )
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda *_args: opened.append(f"OPEN:{_args[0]}") or BrowserOpenResult(returncode=0, action="opened"),
+    )
+
+    exit_code = run(["repair"])
+
+    assert exit_code == 0
+    assert bootstrap_calls == []
+    assert opened == ["OPEN:http://127.0.0.1:bad-port/admin"]
+
+
 def test_run_management_bootstrap_failure_is_actionable_and_prevents_browser_open(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
