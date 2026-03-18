@@ -333,6 +333,20 @@ class InstallerEngine:
             return self.workspace / "provider-catalog.json"
         return self.workspace / catalog.cache_path
 
+    def _catalog_fallback_path(self) -> Path | None:
+        path = self.manifest.provider_catalog.fallback_path.strip()
+        if not path:
+            return None
+
+        candidate = Path(path)
+        if candidate.is_absolute():
+            return candidate
+        return (self.manifest.path.parent / candidate).resolve()
+
+    def _load_catalog_file(self, path: Path) -> Any:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+
     def _sync_provider_catalog(self) -> None:
         catalog = self.manifest.provider_catalog
         if not catalog.enabled:
@@ -349,87 +363,115 @@ class InstallerEngine:
             )
             return
 
-        if not catalog.url:
-            if catalog.required and not self._catalog_cache_path().exists():
+        self._record_step("provider_catalog", "start", message="Syncing provider catalog", details=details)
+        cache_path = self._catalog_cache_path()
+        candidates: list[tuple[str, Callable[[], Any]]] = []
+        if catalog.url:
+            candidates.append(("remote", lambda: self._fetch_provider_catalog(catalog.url, timeout_seconds=catalog.timeout_seconds)))
+
+        fallback_path = self._catalog_fallback_path()
+        if fallback_path:
+            candidates.append(("fallback", lambda: self._load_catalog_file(fallback_path)))
+
+        if cache_path.exists():
+            candidates.append(("cache", lambda: self._load_catalog_file(cache_path)))
+
+        payload = None
+        source = None
+        source_attempts: list[str] = []
+        for candidate_name, candidate_loader in candidates:
+            try:
+                candidate_payload = candidate_loader()
+            except Exception as exc:
+                source_attempts.append(f"{candidate_name}: {exc}")
+                continue
+
+            errors = self._validate_catalog_payload(candidate_payload)
+            if errors:
+                source_attempts.append(f"{candidate_name}: failed validation: {', '.join(errors)}")
+                continue
+
+            payload = candidate_payload
+            source = candidate_name
+            break
+
+        if payload is None:
+            if catalog.required:
                 self._record_step(
                     "provider_catalog",
                     "failed",
-                    message="Catalog required but no provider catalog URL was provided.",
-                    details=details,
+                    message="No valid provider catalog source available.",
+                    details={**details, "candidate_errors": source_attempts},
                 )
-                raise InstallFailure("provider catalog URL missing")
-            self._record_step("provider_catalog", "warning", message="Catalog URL missing; skipping fetch.", details=details)
+                raise InstallFailure("provider catalog unavailable")
+
+            self._record_step(
+                "provider_catalog",
+                "warning",
+                message="No valid provider catalog source available; continuing without catalog update.",
+                details={**details, "candidate_errors": source_attempts},
+                )
             return
 
-        self._record_step("provider_catalog", "start", message="Downloading provider catalog", details=details)
-        cache_path = self._catalog_cache_path()
-        try:
-            payload = self._fetch_provider_catalog(catalog.url, timeout_seconds=catalog.timeout_seconds)
-            catalog_errors = self._validate_catalog_payload(payload)
-            if catalog_errors:
-                details["payload_errors"] = catalog_errors
-                if catalog.required and not cache_path.exists():
-                    self._record_step(
-                        "provider_catalog",
-                        "failed",
-                        message="Catalog payload failed validation and no cached catalog is available.",
-                        details=details,
-                    )
-                    raise InstallFailure("provider catalog payload invalid")
-                if cache_path.exists():
-                    self._record_step(
-                        "provider_catalog",
-                        "warning",
-                        message="Catalog payload failed validation; using existing cached catalog.",
-                        details=details,
-                    )
-                else:
-                    self._record_step(
-                        "provider_catalog",
-                        "warning",
-                        message="Catalog payload failed validation; skipping catalog update.",
-                        details=details,
-                    )
-                return
+        if source == "remote":
+            details["source"] = "remote"
+        elif source == "fallback":
+            details["source"] = "fallback"
+            details["fallback_path"] = str(fallback_path)
+        else:
+            details["source"] = "cache"
 
-            provider_count = 0
-            if isinstance(payload, dict):
-                providers = payload.get("providers")
-                if isinstance(providers, list):
-                    provider_count = len(providers)
-                elif providers is not None:
-                    provider_count = 1
-            elif isinstance(payload, list):
-                provider_count = len(payload)
-            if self.dry_run:
-                details["action"] = "dry-run"
-                details["provider_count"] = provider_count
-                self._record_step("provider_catalog", "ok", message="Dry-run: would persist catalog cache", details=details)
-                return
+        provider_count = 0
+        if isinstance(payload, dict):
+            providers = payload.get("providers")
+            if isinstance(providers, list):
+                provider_count = len(providers)
+            elif providers is not None:
+                provider_count = 1
+        elif isinstance(payload, list):
+            provider_count = len(payload)
+        details["provider_count"] = provider_count
 
+        if self.dry_run:
+            details["action"] = "dry-run"
+            self._record_step(
+                "provider_catalog",
+                "ok",
+                message="Dry-run: would persist catalog cache",
+                details=details,
+            )
+            return
+
+        # If the catalog came from local fallback or remote, refresh cache so
+        # next runs can operate without network on manifest-managed workspaces.
+        if source in {"remote", "fallback"}:
             if not cache_path.parent.exists():
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(
                 json.dumps(payload, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-            details["provider_count"] = provider_count
-            self._record_step("provider_catalog", "ok", message="Provider catalog synced", details=details)
-        except Exception as exc:  # pragma: no cover
-            if catalog.required and not cache_path.exists():
-                self._record_step(
-                    "provider_catalog",
-                    "failed",
-                    message=f"Failed to fetch provider catalog: {exc}",
-                    details=details,
-                )
-                raise InstallFailure(f"provider catalog unavailable: {exc}") from exc
-            self._record_step(
-                "provider_catalog",
-                "warning",
-                message=f"Using cached provider catalog because fetch failed: {exc}",
-                details=details,
-            )
+            details["cache_path"] = str(cache_path)
+
+        status = "ok"
+        if source == "cache":
+            status = "warning"
+            message = "Using cached provider catalog"
+            if source_attempts:
+                details["candidate_errors"] = source_attempts
+        elif source == "fallback":
+            status = "warning"
+            message = "Using manifest fallback provider catalog"
+            if source_attempts:
+                details["candidate_errors"] = source_attempts
+        elif source_attempts:
+            status = "warning"
+            message = "Provider catalog synced after earlier source failures"
+            details["candidate_errors"] = source_attempts
+        else:
+            message = "Provider catalog synced"
+
+        self._record_step("provider_catalog", status, message=message, details=details)
 
     @staticmethod
     def _validate_catalog_payload(payload: Any) -> List[str]:

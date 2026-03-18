@@ -2,6 +2,23 @@
 
 ## 2026-03-17
 
+- Core manifest parsing now fails closed on ambiguous authority fields:
+  - installer booleans are parsed literally, so quoted values like `"false"`
+    no longer become truthy through Python coercion.
+  - `provider_catalog.timeout_seconds` must be a positive integer.
+  - repository `post_pull_steps` must be an explicit YAML list of commands.
+- Provider-catalog sync now tolerates the known endpoint instability without losing
+  bootstrap determinism:
+  - the bundled manifest now points `provider_catalog.fallback_path` to
+    `docs/provider-catalog.json`.
+  - installer sync now tries remote fetch first, then manifest-local fallback,
+    then existing cache before failing when required.
+  - valid local fallback payloads are persisted into the workspace cache so future
+    runs can continue offline with the same catalog shape.
+- `BUSY_INSTALL_SKIP_MODELS` is no longer required for the bundled manifest path:
+  - the bundled manifest still ships `models: []`, so default bootstrap no longer
+    relies on placeholder checksum gating.
+
 - Repo-root entrypoint wrappers are now hardening-consistent with platform launchers:
   - `pf`, `pillowfort`, and `busy` (and `.cmd`/`.ps1` variants) now prefer an
     existing repo-local venv interpreter for bootstrap when it is executable.
