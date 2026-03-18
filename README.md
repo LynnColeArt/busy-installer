@@ -255,14 +255,21 @@ provider_catalog:
   required: false
   url: "https://docs.pillowfort.ai/provider-catalog.json"
   cache_path: "provider_catalog.json"
+  fallback_path: "provider-catalog.json"
   timeout_seconds: 6
 ```
 
-When enabled, the installer will download and cache provider metadata before cloning repositories.
+When enabled, the installer will sync provider metadata before repository cloning.
 
-If `required: true`, a missing/failed catalog fetch aborts the install unless a valid local cache exists.
+If remote fetch fails, the installer will validate and use the configured
+`fallback_path` before trying cache, then fall back to existing cache.
+Fallback artifacts are resolved relative to the manifest file location.
 
-If the request fails and the cache already exists, the engine falls back to cache and continues.
+If `required: true`, install fails only when all sources (remote, fallback, and cache)
+are unavailable or invalid.
+
+If a non-remote source is used (fallback or cache), the step remains successful but
+is reported as a warning.
 
 Run the CLI in dry-run mode to preview all steps:
 
@@ -273,6 +280,12 @@ pillowfort-installer install --manifest docs/installer-manifest.yaml --dry-run
 The bundled manifest does not stage any default model artifacts. Add model
 entries to the manifest only when you have real artifact URLs and checksums to
 enforce.
+
+Manifest-owned authority fields fail closed. Use literal YAML booleans (or
+explicit `0` / `1`) for flags such as `required`, `enabled`, and
+`allow_copy_fallback`. Invalid boolean-like strings and malformed
+`post_pull_steps` values now fail manifest load instead of relying on Python
+truthiness or implicit coercion.
 
 ## Commands
 

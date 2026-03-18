@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import re
+import pytest
 import yaml
 
 from busy_installer.core.config import InstallerManifest
@@ -45,6 +47,7 @@ provider_catalog:
   required: true
   url: "https://example.invalid/provider-catalog.json"
   cache_path: "state/provider-catalog.json"
+  fallback_path: "fallback/provider-catalog.json"
   timeout_seconds: 4
 repositories: []
 models: []
@@ -58,7 +61,109 @@ source_of_truth:
     assert manifest.provider_catalog.required is True
     assert manifest.provider_catalog.url == "https://example.invalid/provider-catalog.json"
     assert manifest.provider_catalog.cache_path == "state/provider-catalog.json"
+    assert manifest.provider_catalog.fallback_path == "fallback/provider-catalog.json"
     assert manifest.provider_catalog.timeout_seconds == 4
+
+
+def test_manifest_boolean_fields_parse_literal_strings(tmp_path: Path) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "./workspace"
+repositories:
+  - name: busy38-core
+    url: "https://example.invalid/busy38-core.git"
+    local_path: "busy-38-ongoing"
+    required: "true"
+    canonical_only: "false"
+    post_pull_steps:
+      - "python -m pip install -r requirements.txt"
+models: []
+provider_catalog:
+  enabled: "false"
+  required: "true"
+  url: "https://example.invalid/provider-catalog.json"
+  timeout_seconds: "6"
+source_of_truth:
+  allow_copy_fallback: "false"
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "~/canons/rw4"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: "true"
+""",
+        encoding="utf-8",
+    )
+
+    manifest = InstallerManifest.from_path(manifest_file)
+
+    assert manifest.repositories[0].required is True
+    assert manifest.repositories[0].canonical_only is False
+    assert manifest.provider_catalog.enabled is False
+    assert manifest.provider_catalog.required is True
+    assert manifest.provider_catalog.timeout_seconds == 6
+    assert manifest.source_of_truth.allow_copy_fallback is False
+    assert manifest.source_of_truth.entries[0].required is True
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected_message"),
+    [
+        (
+            """
+repositories:
+  - name: busy38-core
+    url: "https://example.invalid/busy38-core.git"
+    local_path: "busy-38-ongoing"
+    required: "maybe"
+models: []
+source_of_truth:
+  entries: []
+""",
+            "repositories[].required must be a literal boolean",
+        ),
+        (
+            """
+repositories:
+  - name: busy38-core
+    url: "https://example.invalid/busy38-core.git"
+    local_path: "busy-38-ongoing"
+    post_pull_steps: "python -m pip install -r requirements.txt"
+models: []
+source_of_truth:
+  entries: []
+""",
+            "repositories[].post_pull_steps must be a list of commands",
+        ),
+        (
+            """
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  timeout_seconds: 0
+source_of_truth:
+  entries: []
+""",
+            "provider_catalog.timeout_seconds must be greater than zero",
+        ),
+    ],
+)
+def test_manifest_rejects_malformed_authority_fields(
+    tmp_path: Path,
+    snippet: str,
+    expected_message: str,
+) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        "version: \"1.0\"\nworkspace:\n  path: \"./workspace\"\n" + snippet,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        InstallerManifest.from_path(manifest_file)
 
 
 def test_bundled_manifest_uses_onboarding_bootstrap_helper_and_current_ports() -> None:

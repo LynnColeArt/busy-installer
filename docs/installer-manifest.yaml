@@ -72,6 +72,7 @@ provider_catalog:
   required: false
   url: "https://docs.pillowfort.ai/provider-catalog.json"
   cache_path: "provider_catalog.json"
+  fallback_path: "provider-catalog.json"
   timeout_seconds: 6
 
 models: []
