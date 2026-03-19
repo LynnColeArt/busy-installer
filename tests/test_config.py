@@ -166,6 +166,37 @@ def test_manifest_rejects_malformed_authority_fields(
         InstallerManifest.from_path(manifest_file)
 
 
+def test_manifest_rejects_non_object_root(tmp_path: Path) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text("- not-a-manifest-object\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest must be a YAML object"):
+        InstallerManifest.from_path(manifest_file)
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected_message"),
+    [
+        ("repositories: {}\nmodels: []\nsource_of_truth:\n  entries: []\n", "manifest.repositories must be a list"),
+        ("repositories: []\nmodels: {}\nsource_of_truth:\n  entries: []\n", "manifest.models must be a list"),
+        ("repositories: []\nmodels: []\nsource_of_truth:\n  entries: {}\n", "source_of_truth.entries must be a list"),
+    ],
+)
+def test_manifest_rejects_non_list_collections(
+    tmp_path: Path,
+    snippet: str,
+    expected_message: str,
+) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        "version: \"1.0\"\nworkspace:\n  path: \"./workspace\"\n" + snippet,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        InstallerManifest.from_path(manifest_file)
+
+
 def test_bundled_manifest_uses_onboarding_bootstrap_helper_and_current_ports() -> None:
     manifest_path = Path(__file__).resolve().parents[1] / "docs" / "installer-manifest.yaml"
     payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))

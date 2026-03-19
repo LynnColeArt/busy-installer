@@ -1,5 +1,32 @@
 # Current State
 
+## 2026-03-19 Docs/Specs Adversarial Review Hardening
+
+- The repo now has an explicit docs-memory home for unresolved authority and
+  parser questions:
+  - `docs/internal/OPEN_QUESTIONS_AND_DECISIONS.md` now captures the current
+    security-critical module boundaries, already-made decisions, and remaining
+    hardening questions instead of leaving them as ad hoc notes.
+- Internal specs now preserve more threat context:
+  - `INSTALLER_MULTI_PLATFORM_FEATURE_SPEC.md` now calls out the security-critical
+    modules involved in manifest parsing, dispatch, launcher bootstrap, and
+    management runtime ownership.
+  - The same spec now records the main adversarial threat surfaces behind the
+    current fail-closed rules: manifest injection, `post_pull_steps` trust, and
+    local wrapper / bin-dir interception.
+- Release-smoke documentation now includes adversarial/manual checks:
+  - `INSTALLER_RELEASE_SMOKE_MATRIX.md` now lists the manual negative-path checks
+    that should accompany OS smoke validation, including manifest authority
+    failures, management-root override behavior, bootstrap steady-state reuse,
+    and Windows `.cmd` fallback behavior.
+- AGENTS guidance now explicitly requires adversarial follow-through:
+  - the pre-submission checklist includes docs/open-questions updates when
+    authority ambiguities remain and requires an explicit adversarial review pass
+    for parser/launcher/management changes.
+- Manifest config tests now cover additional edge cases:
+  - config tests now assert fail-closed behavior for non-object manifest roots
+    and non-list manifest collections.
+
 ## 2026-03-19
 
 - Launcher-owned management bootstrap now honors manifest checkout layout:
