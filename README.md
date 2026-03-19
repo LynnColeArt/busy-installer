@@ -238,12 +238,14 @@ Both shell entrypoints route through the same high-level app entrypoint, so beha
 python -m busy_installer.app
 ```
 
-### Required repositories
+### Required plugin bootstrap binding checklist
 
-The installer manifest marks required repos with `required: true`. If a required
-repo fails to sync, the install fails.
+This checklist is scoped to the bundled installer bootstrap flow, not to every
+repo or plugin Busy may treat as required in other runtime contexts. If one of
+these manifest-owned bootstrap repos or plugin sources fails to sync or mount,
+install must fail closed.
 
-The current manifest-required repository set includes:
+The current manifest-owned bootstrap repository set includes:
 - `busy38-core`
 - `busy38-gticket`
 - `busy38-doc-ingest` (mandatory during onboarding/document ingestion setup; adapter mount remains `vendor/busy-38-doc-ingest`)
