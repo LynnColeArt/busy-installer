@@ -7,6 +7,19 @@ This repo assumes extremely capable reviewers (including adversarial ones). Code
 
 ---
 
+## Repo Non-Negotiables
+
+- No new CI without Lynn's explicit approval.
+- Changes to CI, CD, GitHub Actions, branch protection expectations, or other
+  automated enforcement surfaces require Lynn's explicit approval before
+  implementation.
+- Never push directly to `main`.
+- Use a branch-only strategy. Branch names should be descriptive and concise.
+- All changes must go through a pull request and be reviewed by Lynn and/or
+  Sam.
+
+---
+
 ## 0) Definitions
 
 **Production code**  
