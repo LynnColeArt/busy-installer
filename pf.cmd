@@ -12,8 +12,13 @@ if exist "%VENV_PYTHON%" (
   if %errorlevel%==0 (
     set PYTHON=python3
   ) else (
-    echo Python 3 not found and %VENV_PYTHON% is missing. Install Python 3.10+ and rerun. 1>&2
-    exit /b 1
+    where python >nul 2>nul
+    if %errorlevel%==0 (
+      set PYTHON=python
+    ) else (
+      echo Python 3 not found and %VENV_PYTHON% is missing. Install Python 3.10+ and rerun. 1>&2
+      exit /b 1
+    )
   )
 )
 

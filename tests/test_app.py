@@ -64,6 +64,9 @@ def test_root_bootstrap_wrappers_target_app_entrypoint() -> None:
     for text in (pf_cmd, pillowfort_cmd, busy_cmd):
         assert "set VENV_PYTHON=%ROOT%.venv\\Scripts\\python.exe" in text
         assert "if exist \"%VENV_PYTHON%\"" in text
+        assert "where python3 >nul 2>nul" in text
+        assert "where python >nul 2>nul" in text
+        assert "set PYTHON=python" in text
         assert "\"%PYTHON%\" \"%BOOTSTRAP%\" >nul" in text
         assert "bootstrap completed but %VENV_PYTHON% is missing." in text
 

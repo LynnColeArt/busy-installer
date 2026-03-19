@@ -1,5 +1,25 @@
 # Current State
 
+## 2026-03-19
+
+- Launcher-owned management bootstrap now honors manifest checkout layout:
+  - when onboarding state is `ACTIVE`, launcher resolves the Busy core and
+    management UI roots from the manifest repository `local_path` entries
+    instead of assuming `busy-38-ongoing/vendor/busy-38-management-ui`
+  - custom `--manifest` layouts now bootstrap the correct checkout roots before
+    opening the management browser surface
+- Repo-local bootstrap is now idempotent between unchanged launches:
+  - `scripts/bootstrap_env.py` fingerprints `pyproject.toml` and
+    `requirements-dev.lock`, records local bootstrap state in `.venv`, and
+    reuses the prepared interpreter when those inputs still match
+  - runtime wrappers no longer rerun `pip install` on every `pf` / `busy` /
+    `pillowfort` launch; they only refresh when the local interpreter is
+    missing, bootstrap state is stale/unreadable, dependency inputs changed, or
+    `--dev` is explicitly requested
+- Windows `.cmd` wrappers now try `python3` first and then bare `python` before
+  failing, matching typical Windows Python installs that ship `python.exe`
+  without `python3.exe`
+
 ## 2026-03-17
 
 - Core manifest parsing now fails closed on ambiguous authority fields:
@@ -22,8 +42,9 @@
 - Repo-root entrypoint wrappers are now hardening-consistent with platform launchers:
   - `pf`, `pillowfort`, and `busy` (and `.cmd`/`.ps1` variants) now prefer an
     existing repo-local venv interpreter for bootstrap when it is executable.
-  - They now fall back to `python3` only when the repo-local venv interpreter is
-    unavailable.
+  - Unix wrappers fall back to `python3` when the repo-local venv interpreter
+    is unavailable; Windows PowerShell / `.cmd` wrappers try `python3` and then
+    bare `python`.
   - After bootstrap runs, wrappers now fail explicitly if `.venv/bin/python` /
     `.venv/Scripts/python.exe` is still missing, instead of silently continuing.
 

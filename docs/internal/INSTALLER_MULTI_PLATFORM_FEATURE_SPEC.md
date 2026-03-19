@@ -47,7 +47,8 @@ required to create a repo-local `.venv`.
   - installed console scripts run inside the environment where the package is
     already installed
   - repo-local wrappers/platform launchers install the pinned runtime
-    dependency set before app launch
+    dependency set before app launch, but must reuse an unchanged prepared
+    `.venv` instead of rerunning packaging operations on every launch
 - Env variables override manifest where present:
   - `MANIFEST_UI_OPEN`
   - `BUSY_INSTALL_ONBOARDING_URL`
@@ -70,6 +71,9 @@ required to create a repo-local `.venv`.
   - print the exact onboarding/management URL when browser launch is attempted
 - Completion-surface bootstrap must be literal:
   - onboarding workflow remains manifest-owned through `workflows.onboarding`
+  - management bootstrap resolves Busy + management checkout roots from the
+    manifest repository `local_path` entries instead of hard-coded checkout
+    names
   - management launch is launcher-owned and must wait for
     `GET /api/health` on the configured local management port before opening the browser
   - management bootstrap failure is a launcher failure and returns non-zero
