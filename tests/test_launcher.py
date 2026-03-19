@@ -9,14 +9,18 @@ from busy_installer.platform import launcher
 from busy_installer.platform.launcher import BrowserOpenResult, build_installer_command, parse_config, run
 
 
-def _write_manifest(path: Path, wrappers: str = "") -> None:
+def _write_manifest(
+    path: Path,
+    wrappers: str = "",
+    repositories: str = "repositories: []",
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"""
 version: "1.0"
 workspace:
   path: "./pillowfort"
-repositories: []
+{repositories}
 source_of_truth:
   entries: []
 workflows: {{}}
@@ -464,6 +468,71 @@ wrappers:
         )
     ]
     assert opened == ["OPEN:http://127.0.0.1:8031/admin"]
+
+
+def test_run_management_bootstrap_honors_manifest_repo_local_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = tmp_path / "docs" / "installer-manifest.yaml"
+    _write_manifest(
+        manifest,
+        repositories="""
+repositories:
+  - name: busy38-core
+    url: "https://example.invalid/Busy.git"
+    local_path: "runtime/busy-core"
+  - name: busy38-management-ui
+    url: "https://example.invalid/busy38-management-ui.git"
+    local_path: "vendor/installer-management-ui"
+""",
+        wrappers="""
+wrappers:
+  open_management_on_complete: true
+  management_url: "http://127.0.0.1:8031/admin"
+""",
+    )
+    workspace = tmp_path / "pillowfort"
+    onboarding_state = workspace / ".busy" / "onboarding" / "state.json"
+    onboarding_state.parent.mkdir(parents=True, exist_ok=True)
+    onboarding_state.write_text('{"state":"ACTIVE"}\n', encoding="utf-8")
+    monkeypatch.setenv("BUSY_INSTALL_MANIFEST", str(manifest))
+    monkeypatch.setenv("BUSY_INSTALL_DIR", str(workspace))
+
+    class _FakeResult:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.subprocess.run",
+        lambda *_args, **_kwargs: _FakeResult(0),
+    )
+    bootstrap_calls: list[tuple[str, str, str, str, str, int]] = []
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher.management_bootstrap.bootstrap_management",
+        lambda *, workspace, busy_root, management_root, host, health_host, port: bootstrap_calls.append(
+            (str(workspace), str(busy_root), str(management_root), host, health_host, port)
+        )
+        or (workspace / ".busy" / "management" / "installer-management-runtime.json"),
+    )
+    monkeypatch.setattr(
+        "busy_installer.platform.launcher._open_url",
+        lambda url: BrowserOpenResult(returncode=0, action="opened"),
+    )
+
+    exit_code = run(["repair"])
+
+    assert exit_code == 0
+    assert bootstrap_calls == [
+        (
+            str(workspace.resolve()),
+            str((workspace / "runtime" / "busy-core").resolve()),
+            str((workspace / "vendor" / "installer-management-ui").resolve()),
+            "127.0.0.1",
+            "127.0.0.1",
+            8031,
+        )
+    ]
 
 
 def test_run_skips_management_bootstrap_on_invalid_local_management_url(

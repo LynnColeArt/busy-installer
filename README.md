@@ -23,9 +23,9 @@ or developer-only.
 ./busy
 ```
 
-That single command bootstraps the repo-local `.venv` if needed, installs the
-runtime dependencies, runs the maintenance-first installer flow, and opens the
-correct first-run surface for the current workspace.
+That single command bootstraps the repo-local `.venv` if needed, refreshes it
+when the repo bootstrap inputs change, runs the maintenance-first installer
+flow, and opens the correct first-run surface for the current workspace.
 
 The command line stays intentionally quiet, but it does surface:
 
@@ -57,6 +57,10 @@ Use the repo bootstrap directly when you want a dev/test environment:
 python3 scripts/bootstrap_env.py --dev
 . .venv/bin/activate
 ```
+
+`scripts/bootstrap_env.py` is now idempotent for unchanged inputs: once
+`.venv` is prepared, repeat wrapper launches reuse it until `pyproject.toml` or
+`requirements-dev.lock` changes, or until `--dev` is explicitly requested.
 
 Run tests and the bundled-manifest smoke check from that venv:
 
@@ -182,6 +186,9 @@ Management is now installer-owned too:
 - once onboarding state is `ACTIVE`, launcher bootstraps the local management
   runtime, waits for `GET /api/health` on `127.0.0.1:8031`, and only then opens
   the management browser surface
+- launcher resolves the Busy core and management UI checkout roots from the
+  manifest repository `local_path` entries, so custom manifest layouts still
+  bootstrap the correct management checkout before browser open
 
 The installer engine supports symlink-first source-of-truth enforcement:
 

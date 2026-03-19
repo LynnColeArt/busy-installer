@@ -19,6 +19,8 @@ from . import management_bootstrap
 
 _DEFAULT_ONBOARDING_URL = "http://127.0.0.1:8093"
 _DEFAULT_MANAGEMENT_URL = "http://127.0.0.1:8031"
+_DEFAULT_BUSY_ROOT_LOCAL_PATH = "busy-38-ongoing"
+_DEFAULT_MANAGEMENT_ROOT_LOCAL_PATH = "busy-38-ongoing/vendor/busy-38-management-ui"
 _VALID_COMMANDS = {"install", "repair", "status", "clean"}
 _VALUE_OPTIONS = {"--manifest", "--workspace"}
 _BOOLEAN_OPTIONS = {"--skip-models", "--strict-source", "--allow-copy-fallback"}
@@ -53,26 +55,50 @@ def _read_manifest_bool(value: object, default: bool = False) -> bool:
     return default
 
 
-def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None, str | None]:
-    wrappers_open = False
+@dataclass(frozen=True)
+class ManifestLauncherSettings:
+    open_management: bool = False
+    onboarding_url: str | None = None
+    management_url: str | None = None
+    busy_root_local_path: str = _DEFAULT_BUSY_ROOT_LOCAL_PATH
+    management_root_local_path: str = _DEFAULT_MANAGEMENT_ROOT_LOCAL_PATH
+
+
+def _manifest_repo_matches(
+    entry: dict[object, object],
+    *,
+    expected_name: str,
+    expected_url_suffix: str,
+) -> bool:
+    name = str(entry.get("name") or "").strip()
+    if name == expected_name:
+        return True
+    url = str(entry.get("url") or "").strip().lower().rstrip("/")
+    return url.endswith(expected_url_suffix)
+
+
+def _read_manifest_launcher_settings(path: Path) -> ManifestLauncherSettings:
+    open_management = False
     onboarding_url = None
     management_url = None
+    busy_root_local_path = _DEFAULT_BUSY_ROOT_LOCAL_PATH
+    management_root_local_path = _DEFAULT_MANAGEMENT_ROOT_LOCAL_PATH
     try:
         if not path.exists():
-            return wrappers_open, onboarding_url, management_url
+            return ManifestLauncherSettings()
         with path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
     except (OSError, yaml.YAMLError, ValueError):
-        return wrappers_open, onboarding_url, management_url
+        return ManifestLauncherSettings()
 
     if not isinstance(data, dict):
-        return wrappers_open, onboarding_url, management_url
+        return ManifestLauncherSettings()
 
     wrappers = data.get("wrappers")
     if not isinstance(wrappers, dict):
-        return wrappers_open, onboarding_url, management_url
+        wrappers = {}
 
-    wrappers_open = _read_manifest_bool(
+    open_management = _read_manifest_bool(
         wrappers.get("open_management_on_complete", False),
         default=False,
     )
@@ -82,7 +108,34 @@ def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None, str | None]:
     candidate = wrappers.get("management_url")
     if isinstance(candidate, str) and candidate.strip():
         management_url = candidate.strip()
-    return wrappers_open, onboarding_url, management_url
+    repositories = data.get("repositories")
+    if isinstance(repositories, (list, tuple)):
+        for entry in repositories:
+            if not isinstance(entry, dict):
+                continue
+            local_path = str(entry.get("local_path") or "").strip()
+            if not local_path:
+                continue
+            if _manifest_repo_matches(
+                entry,
+                expected_name="busy38-core",
+                expected_url_suffix="busy.git",
+            ):
+                busy_root_local_path = local_path
+                continue
+            if _manifest_repo_matches(
+                entry,
+                expected_name="busy38-management-ui",
+                expected_url_suffix="busy38-management-ui.git",
+            ):
+                management_root_local_path = local_path
+    return ManifestLauncherSettings(
+        open_management=open_management,
+        onboarding_url=onboarding_url,
+        management_url=management_url,
+        busy_root_local_path=busy_root_local_path,
+        management_root_local_path=management_root_local_path,
+    )
 
 
 def _onboarding_state_path(workspace: Path) -> Path:
@@ -175,16 +228,23 @@ def _management_local_binding(url: str | None) -> ManagementLocalBinding | None:
     return None
 
 
+def _resolve_workspace_repo_path(workspace: Path, local_path: str) -> Path:
+    candidate = Path(local_path).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (workspace / candidate).resolve()
+
+
 def _bootstrap_management_surface(config: "LauncherConfig") -> Path | None:
     binding = _management_local_binding(config.management_url)
     if binding is None:
         return None
-    busy_root = config.workspace / "busy-38-ongoing"
-    management_root = busy_root / "vendor" / "busy-38-management-ui"
+    busy_root = _resolve_workspace_repo_path(config.workspace, config.busy_root_local_path)
+    management_root = _resolve_workspace_repo_path(config.workspace, config.management_root_local_path)
     return management_bootstrap.bootstrap_management(
         workspace=config.workspace,
-        busy_root=busy_root.resolve(),
-        management_root=management_root.resolve(),
+        busy_root=busy_root,
+        management_root=management_root,
         host=binding.bind_host,
         health_host=binding.health_host,
         port=binding.port,
@@ -202,6 +262,8 @@ class LauncherConfig:
     open_management: bool
     onboarding_url: str | None
     management_url: str | None
+    busy_root_local_path: str
+    management_root_local_path: str
     passthrough: tuple[str, ...]
 
 
@@ -337,20 +399,20 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
         str(_default_manifest_path()),
     )
     manifest = Path(manifest_value).expanduser().resolve()
-    manifest_open, manifest_onboarding_url, manifest_management_url = _read_manifest_wrappers(manifest)
+    manifest_settings = _read_manifest_launcher_settings(manifest)
     workspace_value = known_args.workspace or os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")
     workspace = Path(workspace_value).expanduser().resolve()
     skip_models = known_args.skip_models or _read_bool("BUSY_INSTALL_SKIP_MODELS")
     strict_source = known_args.strict_source or _read_bool("BUSY_INSTALL_STRICT_SOURCE")
     allow_copy_fallback = known_args.allow_copy_fallback or _read_bool("BUSY_INSTALL_ALLOW_COPY_FALLBACK")
-    open_management = _read_bool("MANIFEST_UI_OPEN", manifest_open)
+    open_management = _read_bool("MANIFEST_UI_OPEN", manifest_settings.open_management)
     onboarding_url = os.getenv(
         "BUSY_INSTALL_ONBOARDING_URL",
-        manifest_onboarding_url or _DEFAULT_ONBOARDING_URL,
+        manifest_settings.onboarding_url or _DEFAULT_ONBOARDING_URL,
     ).strip() or None
     management_url = os.getenv(
         "BUSY_INSTALL_MANAGEMENT_URL",
-        manifest_management_url or _DEFAULT_MANAGEMENT_URL,
+        manifest_settings.management_url or _DEFAULT_MANAGEMENT_URL,
     ).strip() or None
     if not onboarding_url:
         onboarding_url = None
@@ -367,6 +429,8 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
         open_management=open_management,
         onboarding_url=onboarding_url,
         management_url=management_url,
+        busy_root_local_path=manifest_settings.busy_root_local_path,
+        management_root_local_path=manifest_settings.management_root_local_path,
         passthrough=tuple(passthrough),
     )
 
