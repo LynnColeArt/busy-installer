@@ -6,11 +6,9 @@ import os
 import shutil
 import subprocess
 import string
-import sys
 import urllib.parse
 import urllib.request
 import shlex
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, List
 
@@ -192,36 +190,6 @@ class InstallerEngine:
             raise InstallFailure(f"command failed (rc={code}): {' '.join(command)}")
         return code
 
-    @staticmethod
-    def _installer_repo_root() -> Path:
-        return Path(__file__).resolve().parents[2]
-
-    @contextmanager
-    def _workflow_pythonpath(self) -> Any:
-        # Workflow commands run from the target workspace. Prepending the
-        # installer repo root keeps explicit `python -m busy_installer...`
-        # commands runnable from a local clone without requiring a prior
-        # editable install on the host.
-        current = os.environ.get("PYTHONPATH")
-        entries = [str(self._installer_repo_root())]
-        if current:
-            entries.extend(item for item in current.split(os.pathsep) if item)
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in entries:
-            if item in seen:
-                continue
-            seen.add(item)
-            normalized.append(item)
-        os.environ["PYTHONPATH"] = os.pathsep.join(normalized)
-        try:
-            yield
-        finally:
-            if current is None:
-                os.environ.pop("PYTHONPATH", None)
-            else:
-                os.environ["PYTHONPATH"] = current
-
     def _apply_source_bindings(self) -> None:
         entries = list(self.manifest.canonical_bindings())
         if not entries:
@@ -243,86 +211,52 @@ class InstallerEngine:
                 self._record_step("canonical", "warning", message=msg, details=details)
                 return
 
-            mount_state = self._ensure_adapter_path(adapter, canonical)
-            if mount_state == "copy":
-                self._record_step("canonical", "ok", message=f"Accepting adapter copy for {binding.name}", details=details)
+            self._ensure_adapter_path(adapter, canonical)
+            if adapter.is_symlink():
+                if adapter.resolve() == canonical:
+                    self._record_step("canonical", "ok", message=f"Canonical symlink active for {binding.name}", details=details)
+                    return
+                if not self.fallback_allowed or self.strict_source:
+                    raise InstallFailure(f"adapter points to unexpected source: {adapter.resolve()}")
+                self._record_step("canonical", "warning", message="Symlink target mismatch; keeping explicit state", details=details)
                 return
-            if mount_state == "canonical_target":
-                self._record_step("canonical", "ok", message=f"Canonical source active for {binding.name}", details=details)
-                return
-            if mount_state == "would_mount_symlink":
+
+            if not self.fallback_allowed:
+                if self.strict_source:
+                    raise InstallFailure(
+                        f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled"
+                    )
                 self._record_step(
                     "canonical",
-                    "ok",
-                    message=f"Dry-run: would mount canonical symlink for {binding.name}",
+                    "warning",
+                    message="Adapter is not symlinked for source-of-truth mapping",
                     details=details,
                 )
                 return
-            if adapter.is_symlink() and adapter.resolve() == canonical:
-                self._record_step("canonical", "ok", message=f"Canonical symlink active for {binding.name}", details=details)
-                return
-            raise InstallFailure(f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled")
+
+            self._record_step("canonical", "ok", message=f"Accepting adapter copy for {binding.name}", details=details)
         except Exception as exc:
             if binding.required or self.strict_source:
                 raise
             self._record_step("canonical", "warning", message=str(exc), details=details)
 
-    def _ensure_adapter_path(self, adapter: Path, canonical: Path) -> str:
-        if adapter == canonical:
-            return "canonical_target"
-        if adapter.is_symlink() and adapter.resolve() == canonical:
-            return "symlink"
-        adapter_present = adapter.exists() or adapter.is_symlink()
-        if not adapter_present:
+    def _ensure_adapter_path(self, adapter: Path, canonical: Path) -> None:
+        if adapter.exists():
             if self.dry_run:
-                return "would_mount_symlink"
-            try:
-                self._create_canonical_symlink(adapter, canonical)
-                return "symlink"
-            except (OSError, RuntimeError) as exc:
-                if not self.fallback_allowed:
-                    raise InstallFailure(
-                        f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled"
-                    ) from exc
-                self._replace_with_adapter_copy(adapter, canonical)
-                return "copy"
-        if self.fallback_allowed and not adapter.is_symlink():
-            if self.dry_run:
-                return "copy"
-            self._replace_with_adapter_copy(adapter, canonical)
-            return "copy"
+                return
+            if adapter.is_symlink() or adapter.is_file() or adapter.is_dir():
+                return
+            return
         if self.dry_run:
-            return "would_mount_symlink"
-        self._replace_with_canonical_symlink(adapter, canonical)
-        return "symlink"
-
-    @staticmethod
-    def _remove_adapter_path(adapter: Path) -> None:
-        if adapter.is_symlink() or adapter.is_file():
-            adapter.unlink()
             return
-        if adapter.is_dir():
-            shutil.rmtree(adapter)
-            return
-        adapter.unlink(missing_ok=True)
-
-    def _create_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
         adapter.parent.mkdir(parents=True, exist_ok=True)
-        adapter.symlink_to(canonical)
-
-    def _replace_with_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
-        # In symlink-first mode, workspace adapter copies are staging artifacts.
-        # Replace them explicitly so a successful install means the canonical
-        # mount is actually active rather than just warned about.
-        self._remove_adapter_path(adapter)
-        self._create_canonical_symlink(adapter, canonical)
-
-    def _replace_with_adapter_copy(self, adapter: Path, canonical: Path) -> None:
-        # Explicit copy fallback must materialize the canonical repo contents,
-        # not just leave a placeholder directory that looks mounted.
-        self._remove_adapter_path(adapter)
-        adapter.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(canonical, adapter)
+        try:
+            adapter.symlink_to(canonical)
+        except (OSError, RuntimeError):
+            if self.fallback_allowed:
+                adapter.mkdir(parents=True, exist_ok=True)
+            else:
+                raise
 
     def _resolve_repo_mount(self, mount: str) -> Path:
         return (self.workspace / mount).resolve()
@@ -332,20 +266,6 @@ class InstallerEngine:
         if not catalog.cache_path:
             return self.workspace / "provider-catalog.json"
         return self.workspace / catalog.cache_path
-
-    def _catalog_fallback_path(self) -> Path | None:
-        path = self.manifest.provider_catalog.fallback_path.strip()
-        if not path:
-            return None
-
-        candidate = Path(path)
-        if candidate.is_absolute():
-            return candidate
-        return (self.manifest.path.parent / candidate).resolve()
-
-    def _load_catalog_file(self, path: Path) -> Any:
-        with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
 
     def _sync_provider_catalog(self) -> None:
         catalog = self.manifest.provider_catalog
@@ -363,115 +283,87 @@ class InstallerEngine:
             )
             return
 
-        self._record_step("provider_catalog", "start", message="Syncing provider catalog", details=details)
-        cache_path = self._catalog_cache_path()
-        candidates: list[tuple[str, Callable[[], Any]]] = []
-        if catalog.url:
-            candidates.append(("remote", lambda: self._fetch_provider_catalog(catalog.url, timeout_seconds=catalog.timeout_seconds)))
-
-        fallback_path = self._catalog_fallback_path()
-        if fallback_path:
-            candidates.append(("fallback", lambda: self._load_catalog_file(fallback_path)))
-
-        if cache_path.exists():
-            candidates.append(("cache", lambda: self._load_catalog_file(cache_path)))
-
-        payload = None
-        source = None
-        source_attempts: list[str] = []
-        for candidate_name, candidate_loader in candidates:
-            try:
-                candidate_payload = candidate_loader()
-            except Exception as exc:
-                source_attempts.append(f"{candidate_name}: {exc}")
-                continue
-
-            errors = self._validate_catalog_payload(candidate_payload)
-            if errors:
-                source_attempts.append(f"{candidate_name}: failed validation: {', '.join(errors)}")
-                continue
-
-            payload = candidate_payload
-            source = candidate_name
-            break
-
-        if payload is None:
-            if catalog.required:
+        if not catalog.url:
+            if catalog.required and not self._catalog_cache_path().exists():
                 self._record_step(
                     "provider_catalog",
                     "failed",
-                    message="No valid provider catalog source available.",
-                    details={**details, "candidate_errors": source_attempts},
+                    message="Catalog required but no provider catalog URL was provided.",
+                    details=details,
                 )
-                raise InstallFailure("provider catalog unavailable")
-
-            self._record_step(
-                "provider_catalog",
-                "warning",
-                message="No valid provider catalog source available; continuing without catalog update.",
-                details={**details, "candidate_errors": source_attempts},
-                )
+                raise InstallFailure("provider catalog URL missing")
+            self._record_step("provider_catalog", "warning", message="Catalog URL missing; skipping fetch.", details=details)
             return
 
-        if source == "remote":
-            details["source"] = "remote"
-        elif source == "fallback":
-            details["source"] = "fallback"
-            details["fallback_path"] = str(fallback_path)
-        else:
-            details["source"] = "cache"
+        self._record_step("provider_catalog", "start", message="Downloading provider catalog", details=details)
+        cache_path = self._catalog_cache_path()
+        try:
+            payload = self._fetch_provider_catalog(catalog.url, timeout_seconds=catalog.timeout_seconds)
+            catalog_errors = self._validate_catalog_payload(payload)
+            if catalog_errors:
+                details["payload_errors"] = catalog_errors
+                if catalog.required and not cache_path.exists():
+                    self._record_step(
+                        "provider_catalog",
+                        "failed",
+                        message="Catalog payload failed validation and no cached catalog is available.",
+                        details=details,
+                    )
+                    raise InstallFailure("provider catalog payload invalid")
+                if cache_path.exists():
+                    self._record_step(
+                        "provider_catalog",
+                        "warning",
+                        message="Catalog payload failed validation; using existing cached catalog.",
+                        details=details,
+                    )
+                else:
+                    self._record_step(
+                        "provider_catalog",
+                        "warning",
+                        message="Catalog payload failed validation; skipping catalog update.",
+                        details=details,
+                    )
+                return
 
-        provider_count = 0
-        if isinstance(payload, dict):
-            providers = payload.get("providers")
-            if isinstance(providers, list):
-                provider_count = len(providers)
-            elif providers is not None:
-                provider_count = 1
-        elif isinstance(payload, list):
-            provider_count = len(payload)
-        details["provider_count"] = provider_count
+            provider_count = 0
+            if isinstance(payload, dict):
+                providers = payload.get("providers")
+                if isinstance(providers, list):
+                    provider_count = len(providers)
+                elif providers is not None:
+                    provider_count = 1
+            elif isinstance(payload, list):
+                provider_count = len(payload)
+            if self.dry_run:
+                details["action"] = "dry-run"
+                details["provider_count"] = provider_count
+                self._record_step("provider_catalog", "ok", message="Dry-run: would persist catalog cache", details=details)
+                return
 
-        if self.dry_run:
-            details["action"] = "dry-run"
-            self._record_step(
-                "provider_catalog",
-                "ok",
-                message="Dry-run: would persist catalog cache",
-                details=details,
-            )
-            return
-
-        # If the catalog came from local fallback or remote, refresh cache so
-        # next runs can operate without network on manifest-managed workspaces.
-        if source in {"remote", "fallback"}:
             if not cache_path.parent.exists():
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(
                 json.dumps(payload, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-            details["cache_path"] = str(cache_path)
-
-        status = "ok"
-        if source == "cache":
-            status = "warning"
-            message = "Using cached provider catalog"
-            if source_attempts:
-                details["candidate_errors"] = source_attempts
-        elif source == "fallback":
-            status = "warning"
-            message = "Using manifest fallback provider catalog"
-            if source_attempts:
-                details["candidate_errors"] = source_attempts
-        elif source_attempts:
-            status = "warning"
-            message = "Provider catalog synced after earlier source failures"
-            details["candidate_errors"] = source_attempts
-        else:
-            message = "Provider catalog synced"
-
-        self._record_step("provider_catalog", status, message=message, details=details)
+            details["provider_count"] = provider_count
+            self._record_step("provider_catalog", "ok", message="Provider catalog synced", details=details)
+        except Exception as exc:  # pragma: no cover
+            if catalog.required and not cache_path.exists():
+                self._record_step(
+                    "provider_catalog",
+                    "failed",
+                    message=f"Failed to fetch provider catalog: {exc}",
+                    details=details,
+                )
+                raise InstallFailure(f"provider catalog unavailable: {exc}") from exc
+            self._record_step(
+                "provider_catalog",
+                "warning",
+                message=f"Using cached provider catalog because fetch failed: {exc}",
+                details=details,
+            )
 
     @staticmethod
     def _validate_catalog_payload(payload: Any) -> List[str]:
@@ -594,13 +486,7 @@ class InstallerEngine:
 
     @staticmethod
     def _split_command(command: str) -> list[str]:
-        parts = shlex.split(command)
-        # Manifest-owned workflow commands should reuse the interpreter that is
-        # already running the installer. This fixes Linux hosts without a bare
-        # `python` shim without guessing at any other command token.
-        if parts and parts[0] == "python":
-            parts[0] = sys.executable
-        return parts
+        return shlex.split(command)
 
     @staticmethod
     def _model_target_dir(raw_target: Path) -> Path:
@@ -690,8 +576,7 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("onboarding", "ok", message=f"Would run command: {self.manifest.onboarding.command}")
             return
-        with self._workflow_pythonpath():
-            self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
+        self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
         self._record_step("onboarding", "ok", message="Onboarding command completed")
 
     def _run_smoke(self) -> None:
@@ -702,8 +587,7 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("smoke", "ok", message=f"Would run command: {self.manifest.smoke.command}")
             return
-        with self._workflow_pythonpath():
-            self._run(self._split_command(self.manifest.smoke.command), self.workspace)
+        self._run(self._split_command(self.manifest.smoke.command), self.workspace)
         self._record_step("smoke", "ok", message="Smoke check completed")
 
     def _finalize(self) -> None:

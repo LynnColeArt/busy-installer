@@ -1,8 +1,0 @@
-# Verified dependency set for the repo-local `.venv`.
-# Refresh intentionally and with review when dependency versions change.
-iniconfig==2.3.0
-packaging==26.0
-pluggy==1.6.0
-Pygments==2.19.2
-pytest==9.0.2
-PyYAML==6.0.3
