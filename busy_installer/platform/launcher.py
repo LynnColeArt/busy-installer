@@ -5,17 +5,10 @@ import shlex
 import shutil
 import subprocess
 import sys
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-
-_DEFAULT_ONBOARDING_URL = "http://127.0.0.1:8093"
-_DEFAULT_MANAGEMENT_URL = "http://127.0.0.1:8031"
-_VALID_COMMANDS = {"install", "repair", "status", "clean"}
-_VALUE_OPTIONS = {"--manifest", "--workspace"}
-_BOOLEAN_OPTIONS = {"--skip-models", "--strict-source", "--allow-copy-fallback"}
 
 
 def _repo_root() -> Path:
@@ -33,77 +26,29 @@ def _read_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on", "y"}
 
 
-def _read_manifest_bool(value: object, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int) and value in {0, 1}:
-        return bool(value)
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on", "y"}:
-            return True
-        if normalized in {"0", "false", "no", "off", "n", ""}:
-            return False
-    return default
-
-
-def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None, str | None]:
+def _read_manifest_wrappers(path: Path) -> tuple[bool, str | None]:
     wrappers_open = False
-    onboarding_url = None
     management_url = None
     try:
         if not path.exists():
-            return wrappers_open, onboarding_url, management_url
+            return wrappers_open, management_url
         with path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
     except (OSError, yaml.YAMLError, ValueError):
-        return wrappers_open, onboarding_url, management_url
+        return wrappers_open, management_url
 
     if not isinstance(data, dict):
-        return wrappers_open, onboarding_url, management_url
+        return wrappers_open, management_url
 
     wrappers = data.get("wrappers")
     if not isinstance(wrappers, dict):
-        return wrappers_open, onboarding_url, management_url
+        return wrappers_open, management_url
 
-    wrappers_open = _read_manifest_bool(
-        wrappers.get("open_management_on_complete", False),
-        default=False,
-    )
-    candidate = wrappers.get("onboarding_url")
-    if isinstance(candidate, str) and candidate.strip():
-        onboarding_url = candidate.strip()
+    wrappers_open = bool(wrappers.get("open_management_on_complete", False))
     candidate = wrappers.get("management_url")
     if isinstance(candidate, str) and candidate.strip():
         management_url = candidate.strip()
-    return wrappers_open, onboarding_url, management_url
-
-
-def _onboarding_state_path(workspace: Path) -> Path:
-    return workspace / ".busy" / "onboarding" / "state.json"
-
-
-def _load_onboarding_state(workspace: Path) -> str | None:
-    path = _onboarding_state_path(workspace)
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    state = payload.get("state")
-    if not isinstance(state, str):
-        return None
-    normalized = state.strip().upper()
-    return normalized or None
-
-
-def _select_completion_surface(config: "LauncherConfig") -> tuple[str, str | None, str | None]:
-    onboarding_state = _load_onboarding_state(config.workspace)
-    if onboarding_state == "ACTIVE":
-        return "management", config.management_url, onboarding_state
-    return "onboarding", config.onboarding_url, onboarding_state
+    return wrappers_open, management_url
 
 
 @dataclass(frozen=True)
@@ -115,154 +60,27 @@ class LauncherConfig:
     strict_source: bool
     allow_copy_fallback: bool
     open_management: bool
-    onboarding_url: str | None
     management_url: str | None
     passthrough: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class _ParsedLauncherArgs:
-    command: str | None
-    manifest: str | None
-    workspace: str | None
-    skip_models: bool
-    strict_source: bool
-    allow_copy_fallback: bool
-
-
-def _consume_required_option_value(
-    args: list[str],
-    index: int,
-    option_name: str,
-) -> tuple[str, int]:
-    next_index = index + 1
-    if next_index >= len(args):
-        raise SystemExit(f"argument {option_name}: expected one argument")
-
-    value = args[next_index]
-    if value == "--" or value.startswith("-") or value in _VALUE_OPTIONS or value in _BOOLEAN_OPTIONS:
-        raise SystemExit(f"argument {option_name}: expected one argument")
-
-    return value, next_index + 1
-
-
-def _ensure_option_not_repeated(
-    option_name: str,
-    current_value: str | None,
-) -> None:
-    if current_value is not None:
-        raise SystemExit(f"argument {option_name}: may only be specified once")
-
-
-def _ensure_token_not_after_passthrough(
-    token: str,
-    saw_positional_passthrough: bool,
-) -> None:
-    if saw_positional_passthrough:
-        raise SystemExit(
-            f"launcher-owned token may not appear after passthrough tokens: {token}"
-        )
-
-
-def _parse_launcher_passthrough(args: list[str]) -> tuple[_ParsedLauncherArgs, tuple[str, ...]]:
-    command: str | None = None
-    manifest: str | None = None
-    workspace: str | None = None
-    skip_models = False
-    strict_source = False
-    allow_copy_fallback = False
-    passthrough: list[str] = []
-    saw_positional_passthrough = False
-
-    index = 0
-    while index < len(args):
-        token = args[index]
-
-        if token == "--":
-            passthrough.extend(args[index:])
-            break
-        if token == "--manifest":
-            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
-            _ensure_option_not_repeated(token, manifest)
-            manifest, index = _consume_required_option_value(args, index, token)
-            continue
-        if token == "--workspace":
-            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
-            _ensure_option_not_repeated(token, workspace)
-            workspace, index = _consume_required_option_value(args, index, token)
-            continue
-        if token == "--skip-models":
-            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
-            skip_models = True
-            index += 1
-            continue
-        if token == "--strict-source":
-            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
-            strict_source = True
-            index += 1
-            continue
-        if token == "--allow-copy-fallback":
-            _ensure_token_not_after_passthrough(token, saw_positional_passthrough)
-            allow_copy_fallback = True
-            index += 1
-            continue
-        if not token.startswith("-") and token in _VALID_COMMANDS and command is None:
-            if saw_positional_passthrough:
-                raise SystemExit(
-                    f"launcher command must appear before passthrough tokens: {token}"
-                )
-            command = token
-            index += 1
-            continue
-        if not token.startswith("-") and token in _VALID_COMMANDS:
-            raise SystemExit(
-                f"multiple launcher commands are not allowed: {command} and {token}"
-            )
-
-        passthrough.append(token)
-        saw_positional_passthrough = True
-        index += 1
-
-    return (
-        _ParsedLauncherArgs(
-            command=command,
-            manifest=manifest,
-            workspace=workspace,
-            skip_models=skip_models,
-            strict_source=strict_source,
-            allow_copy_fallback=allow_copy_fallback,
-        ),
-        tuple(passthrough),
-    )
-
-
 def parse_config(argv: list[str] | None = None) -> LauncherConfig:
     args = list(argv or [])
-    known_args, passthrough = _parse_launcher_passthrough(args)
-    command = known_args.command or "install"
+    if not args or args[0].startswith("-"):
+        command = "install"
+        passthrough = tuple(args)
+    else:
+        command = args[0]
+        passthrough = tuple(args[1:])
 
-    manifest_value = known_args.manifest or os.getenv(
-        "BUSY_INSTALL_MANIFEST",
-        str(_default_manifest_path()),
-    )
-    manifest = Path(manifest_value).expanduser().resolve()
-    manifest_open, manifest_onboarding_url, manifest_management_url = _read_manifest_wrappers(manifest)
-    workspace_value = known_args.workspace or os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")
-    workspace = Path(workspace_value).expanduser().resolve()
-    skip_models = known_args.skip_models or _read_bool("BUSY_INSTALL_SKIP_MODELS")
-    strict_source = known_args.strict_source or _read_bool("BUSY_INSTALL_STRICT_SOURCE")
-    allow_copy_fallback = known_args.allow_copy_fallback or _read_bool("BUSY_INSTALL_ALLOW_COPY_FALLBACK")
+    manifest = Path(os.getenv("BUSY_INSTALL_MANIFEST", str(_default_manifest_path()))).expanduser()
+    manifest_open, manifest_url = _read_manifest_wrappers(manifest)
+    workspace = Path(os.getenv("BUSY_INSTALL_DIR", "~/pillowfort")).expanduser().resolve()
+    skip_models = _read_bool("BUSY_INSTALL_SKIP_MODELS")
+    strict_source = _read_bool("BUSY_INSTALL_STRICT_SOURCE")
+    allow_copy_fallback = _read_bool("BUSY_INSTALL_ALLOW_COPY_FALLBACK")
     open_management = _read_bool("MANIFEST_UI_OPEN", manifest_open)
-    onboarding_url = os.getenv(
-        "BUSY_INSTALL_ONBOARDING_URL",
-        manifest_onboarding_url or _DEFAULT_ONBOARDING_URL,
-    ).strip() or None
-    management_url = os.getenv(
-        "BUSY_INSTALL_MANAGEMENT_URL",
-        manifest_management_url or _DEFAULT_MANAGEMENT_URL,
-    ).strip() or None
-    if not onboarding_url:
-        onboarding_url = None
+    management_url = os.getenv("BUSY_INSTALL_MANAGEMENT_URL", manifest_url or "http://127.0.0.1:8080").strip() or None
     if not management_url:
         management_url = None
 
@@ -274,9 +92,8 @@ def parse_config(argv: list[str] | None = None) -> LauncherConfig:
         strict_source=strict_source,
         allow_copy_fallback=allow_copy_fallback,
         open_management=open_management,
-        onboarding_url=onboarding_url,
         management_url=management_url,
-        passthrough=tuple(passthrough),
+        passthrough=passthrough,
     )
 
 
@@ -295,7 +112,7 @@ def build_installer_command(config: LauncherConfig) -> list[str]:
     return command
 
 
-def _open_url(url: str) -> int:
+def _open_management_url(url: str) -> int:
     open_commands: dict[str, tuple[str, ...]] = {
         "darwin": ("open", url),
         "win32": ("cmd", "/c", "start", "", url),
@@ -346,23 +163,8 @@ def run(argv: list[str] | None = None) -> int:
 
         handle.write("[launcher] installer completed successfully\n")
 
-    if config.open_management and config.command in {"install", "repair"}:
-        surface_name, target_url, onboarding_state = _select_completion_surface(config)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"[launcher] onboarding_state: {onboarding_state or 'missing-or-incomplete'}\n")
-            if not target_url:
-                handle.write(f"[launcher] no {surface_name} URL configured; skipping browser open.\n")
-                return 0
-            handle.write(f"[launcher] opening {surface_name} URL: {target_url}\n")
-        open_exit = _open_url(target_url)
-        with log_path.open("a", encoding="utf-8") as handle:
-            if open_exit != 0:
-                handle.write(
-                    f"[launcher] failed to open {surface_name} URL (rc={open_exit}): {target_url}\n"
-                )
-            else:
-                handle.write(f"[launcher] opened {surface_name} URL successfully\n")
-        return 0
+    if config.open_management and config.management_url and config.command in {"install", "repair"}:
+        return _open_management_url(config.management_url)
     return 0
 
 
