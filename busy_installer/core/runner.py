@@ -6,9 +6,11 @@ import os
 import shutil
 import subprocess
 import string
+import sys
 import urllib.parse
 import urllib.request
 import shlex
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, List
 
@@ -190,6 +192,36 @@ class InstallerEngine:
             raise InstallFailure(f"command failed (rc={code}): {' '.join(command)}")
         return code
 
+    @staticmethod
+    def _installer_repo_root() -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @contextmanager
+    def _workflow_pythonpath(self) -> Any:
+        # Workflow commands run from the target workspace. Prepending the
+        # installer repo root keeps explicit `python -m busy_installer...`
+        # commands runnable from a local clone without requiring a prior
+        # editable install on the host.
+        current = os.environ.get("PYTHONPATH")
+        entries = [str(self._installer_repo_root())]
+        if current:
+            entries.extend(item for item in current.split(os.pathsep) if item)
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in entries:
+            if item in seen:
+                continue
+            seen.add(item)
+            normalized.append(item)
+        os.environ["PYTHONPATH"] = os.pathsep.join(normalized)
+        try:
+            yield
+        finally:
+            if current is None:
+                os.environ.pop("PYTHONPATH", None)
+            else:
+                os.environ["PYTHONPATH"] = current
+
     def _apply_source_bindings(self) -> None:
         entries = list(self.manifest.canonical_bindings())
         if not entries:
@@ -211,52 +243,86 @@ class InstallerEngine:
                 self._record_step("canonical", "warning", message=msg, details=details)
                 return
 
-            self._ensure_adapter_path(adapter, canonical)
-            if adapter.is_symlink():
-                if adapter.resolve() == canonical:
-                    self._record_step("canonical", "ok", message=f"Canonical symlink active for {binding.name}", details=details)
-                    return
-                if not self.fallback_allowed or self.strict_source:
-                    raise InstallFailure(f"adapter points to unexpected source: {adapter.resolve()}")
-                self._record_step("canonical", "warning", message="Symlink target mismatch; keeping explicit state", details=details)
+            mount_state = self._ensure_adapter_path(adapter, canonical)
+            if mount_state == "copy":
+                self._record_step("canonical", "ok", message=f"Accepting adapter copy for {binding.name}", details=details)
                 return
-
-            if not self.fallback_allowed:
-                if self.strict_source:
-                    raise InstallFailure(
-                        f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled"
-                    )
+            if mount_state == "canonical_target":
+                self._record_step("canonical", "ok", message=f"Canonical source active for {binding.name}", details=details)
+                return
+            if mount_state == "would_mount_symlink":
                 self._record_step(
                     "canonical",
-                    "warning",
-                    message="Adapter is not symlinked for source-of-truth mapping",
+                    "ok",
+                    message=f"Dry-run: would mount canonical symlink for {binding.name}",
                     details=details,
                 )
                 return
-
-            self._record_step("canonical", "ok", message=f"Accepting adapter copy for {binding.name}", details=details)
+            if adapter.is_symlink() and adapter.resolve() == canonical:
+                self._record_step("canonical", "ok", message=f"Canonical symlink active for {binding.name}", details=details)
+                return
+            raise InstallFailure(f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled")
         except Exception as exc:
             if binding.required or self.strict_source:
                 raise
             self._record_step("canonical", "warning", message=str(exc), details=details)
 
-    def _ensure_adapter_path(self, adapter: Path, canonical: Path) -> None:
-        if adapter.exists():
+    def _ensure_adapter_path(self, adapter: Path, canonical: Path) -> str:
+        if adapter == canonical:
+            return "canonical_target"
+        if adapter.is_symlink() and adapter.resolve() == canonical:
+            return "symlink"
+        adapter_present = adapter.exists() or adapter.is_symlink()
+        if not adapter_present:
             if self.dry_run:
-                return
-            if adapter.is_symlink() or adapter.is_file() or adapter.is_dir():
-                return
-            return
+                return "would_mount_symlink"
+            try:
+                self._create_canonical_symlink(adapter, canonical)
+                return "symlink"
+            except (OSError, RuntimeError) as exc:
+                if not self.fallback_allowed:
+                    raise InstallFailure(
+                        f"canonical path must be mounted as symlink: {adapter} -> {canonical}; copy fallback disabled"
+                    ) from exc
+                self._replace_with_adapter_copy(adapter, canonical)
+                return "copy"
+        if self.fallback_allowed and not adapter.is_symlink():
+            if self.dry_run:
+                return "copy"
+            self._replace_with_adapter_copy(adapter, canonical)
+            return "copy"
         if self.dry_run:
+            return "would_mount_symlink"
+        self._replace_with_canonical_symlink(adapter, canonical)
+        return "symlink"
+
+    @staticmethod
+    def _remove_adapter_path(adapter: Path) -> None:
+        if adapter.is_symlink() or adapter.is_file():
+            adapter.unlink()
             return
+        if adapter.is_dir():
+            shutil.rmtree(adapter)
+            return
+        adapter.unlink(missing_ok=True)
+
+    def _create_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
         adapter.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            adapter.symlink_to(canonical)
-        except (OSError, RuntimeError):
-            if self.fallback_allowed:
-                adapter.mkdir(parents=True, exist_ok=True)
-            else:
-                raise
+        adapter.symlink_to(canonical)
+
+    def _replace_with_canonical_symlink(self, adapter: Path, canonical: Path) -> None:
+        # In symlink-first mode, workspace adapter copies are staging artifacts.
+        # Replace them explicitly so a successful install means the canonical
+        # mount is actually active rather than just warned about.
+        self._remove_adapter_path(adapter)
+        self._create_canonical_symlink(adapter, canonical)
+
+    def _replace_with_adapter_copy(self, adapter: Path, canonical: Path) -> None:
+        # Explicit copy fallback must materialize the canonical repo contents,
+        # not just leave a placeholder directory that looks mounted.
+        self._remove_adapter_path(adapter)
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(canonical, adapter)
 
     def _resolve_repo_mount(self, mount: str) -> Path:
         return (self.workspace / mount).resolve()
@@ -486,7 +552,13 @@ class InstallerEngine:
 
     @staticmethod
     def _split_command(command: str) -> list[str]:
-        return shlex.split(command)
+        parts = shlex.split(command)
+        # Manifest-owned workflow commands should reuse the interpreter that is
+        # already running the installer. This fixes Linux hosts without a bare
+        # `python` shim without guessing at any other command token.
+        if parts and parts[0] == "python":
+            parts[0] = sys.executable
+        return parts
 
     @staticmethod
     def _model_target_dir(raw_target: Path) -> Path:
@@ -576,7 +648,8 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("onboarding", "ok", message=f"Would run command: {self.manifest.onboarding.command}")
             return
-        self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
+        with self._workflow_pythonpath():
+            self._run(self._split_command(self.manifest.onboarding.command), self.workspace)
         self._record_step("onboarding", "ok", message="Onboarding command completed")
 
     def _run_smoke(self) -> None:
@@ -587,7 +660,8 @@ class InstallerEngine:
         if self.dry_run:
             self._record_step("smoke", "ok", message=f"Would run command: {self.manifest.smoke.command}")
             return
-        self._run(self._split_command(self.manifest.smoke.command), self.workspace)
+        with self._workflow_pythonpath():
+            self._run(self._split_command(self.manifest.smoke.command), self.workspace)
         self._record_step("smoke", "ok", message="Smoke check completed")
 
     def _finalize(self) -> None:
