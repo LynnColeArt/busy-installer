@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 
 from busy_installer import app, cli
 from busy_installer.platform import launcher
@@ -93,3 +94,19 @@ def test_default_manifest_paths_resolve_to_packaged_bundle() -> None:
     assert launcher._default_manifest_path() == bundled_manifest
     assert '_bundled/*.yaml' in pyproject
     assert bundled_manifest.read_text(encoding="utf-8") == repo_manifest.read_text(encoding="utf-8")
+
+
+def test_public_command_aliases_stay_in_sync_with_packaging() -> None:
+    root = Path(__file__).resolve().parents[1]
+    payload = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    scripts = payload["project"]["scripts"]
+    assert scripts["pf"] == "busy_installer.app:main"
+    assert scripts["pillowfort"] == "busy_installer.app:main"
+    assert scripts["busy"] == "busy_installer.app:main"
+    assert scripts["pillowfort-installer"] == "busy_installer.cli:main"
+
+    for name in ("pf", "pillowfort", "busy"):
+        assert (root / name).is_file()
+        assert (root / f"{name}.cmd").is_file()
+        assert (root / f"{name}.ps1").is_file()

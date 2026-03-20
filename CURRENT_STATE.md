@@ -1,5 +1,32 @@
 # Current State
 
+## 2026-03-19 Docs/Specs Adversarial Review Hardening
+
+- The repo now has an explicit docs-memory home for unresolved authority and
+  parser questions:
+  - `docs/internal/OPEN_QUESTIONS_AND_DECISIONS.md` now captures the current
+    security-critical module boundaries, already-made decisions, and remaining
+    hardening questions instead of leaving them as ad hoc notes.
+- Internal specs now preserve more threat context:
+  - `INSTALLER_MULTI_PLATFORM_FEATURE_SPEC.md` now calls out the security-critical
+    modules involved in manifest parsing, dispatch, launcher bootstrap, and
+    management runtime ownership.
+  - The same spec now records the main adversarial threat surfaces behind the
+    current fail-closed rules: manifest injection, `post_pull_steps` trust, and
+    local wrapper / bin-dir interception.
+- Release-smoke documentation now includes adversarial/manual checks:
+  - `INSTALLER_RELEASE_SMOKE_MATRIX.md` now lists the manual negative-path checks
+    that should accompany OS smoke validation, including manifest authority
+    failures, management-root override behavior, bootstrap steady-state reuse,
+    and Windows `.cmd` fallback behavior.
+- AGENTS guidance now explicitly requires adversarial follow-through:
+  - the pre-submission checklist includes docs/open-questions updates when
+    authority ambiguities remain and requires an explicit adversarial review pass
+    for parser/launcher/management changes.
+- Manifest config tests now cover additional edge cases:
+  - config tests now assert fail-closed behavior for non-object manifest roots
+    and non-list manifest collections.
+
 ## 2026-03-19
 
 - Installed console entrypoints now ship the bundled manifest explicitly:
@@ -82,6 +109,12 @@
     opens the browser
   - if management bootstrap fails, launcher exits non-zero instead of opening a
     dead loopback URL
+- The repo's plugin-local management UI surface is now test-backed:
+  - `ui/manifest.json` declares installer-owned docs/diagnostics sections
+  - `ui/actions.py` provides the installer debug action handler for
+    `/api/plugins/{plugin_id}/ui/debug`
+  - the older Busy roadmap note that listed `busy-installer` as lacking a
+    local `/ui` surface is stale relative to this checkout
 - Repo-local user entrypoints now exist as `./pf`, `./pillowfort`, and `./busy`
   (plus Windows `.cmd` / PowerShell equivalents), and installed console
   entrypoints now also expose `pf`, `pillowfort`, and `busy`.
@@ -118,6 +151,12 @@
 - A repo-owned smoke harness now exercises the bundled manifest through the
   real high-level app/launcher/CLI dry-run path in an isolated temp workspace and ephemeral
   home directory.
+- The repo now also carries a repo-owned release-smoke command plus a manual
+  per-OS smoke matrix:
+  - `python scripts/release_smoke.py --print-matrix`
+  - `python scripts/release_smoke.py --current-platform --skip-bootstrap`
+  - CI/workflow automation for this matrix remains deferred pending Lynn Cole's
+    involvement.
 - The bundled installer manifest no longer ships with a placeholder model
   checksum that forced local validation to pass `--skip-models`.
 - Wrapper/platform documentation is now aligned around the actual
