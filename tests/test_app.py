@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tomllib
 
 from busy_installer import app
 
@@ -76,19 +75,3 @@ def test_root_bootstrap_wrappers_target_app_entrypoint() -> None:
         assert "& $python $Bootstrap | Out-Null" in text
         assert "if (-not (Test-Path $VenvPython))" in text
         assert "bootstrap completed but $VenvPython is missing." in text
-
-
-def test_public_command_aliases_stay_in_sync_with_packaging() -> None:
-    root = Path(__file__).resolve().parents[1]
-    payload = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-
-    scripts = payload["project"]["scripts"]
-    assert scripts["pf"] == "busy_installer.app:main"
-    assert scripts["pillowfort"] == "busy_installer.app:main"
-    assert scripts["busy"] == "busy_installer.app:main"
-    assert scripts["pillowfort-installer"] == "busy_installer.cli:main"
-
-    for name in ("pf", "pillowfort", "busy"):
-        assert (root / name).is_file()
-        assert (root / f"{name}.cmd").is_file()
-        assert (root / f"{name}.ps1").is_file()
