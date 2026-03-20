@@ -25,22 +25,6 @@ Repo-local wrappers and platform launchers should bootstrap the repo-local
 Installed console scripts run inside their existing interpreter and are not
 required to create a repo-local `.venv`.
 
-## Security-Critical Modules
-
-The following modules are security-critical for this feature area and should be
-reviewed together when one of them changes:
-
-- `busy_installer/core/config.py`
-  - fail-closed manifest parsing for authority fields
-- `busy_installer/core/runner.py`
-  - repo sync, provider-catalog source selection, and source-of-truth
-    enforcement
-- `busy_installer/platform/launcher.py`
-  - wrapper argument parsing, command routing, and management bootstrap
-    ownership
-- `busy_installer/platform/management_bootstrap.py`
-  - local runtime ownership checks and browser-root readiness gating
-
 ## Required Behavior Matrix
 
 | Case | Expected command | Completion-surface policy |
@@ -99,31 +83,11 @@ reviewed together when one of them changes:
     window or an existing matching tab to the foreground instead of opening a
     duplicate background tab
 
-## Threat Notes
-
-- Manifest injection:
-  - `wrappers`, repository `local_path`, provider-catalog settings, and
-    `post_pull_steps` are authority inputs. They must remain literal and
-    reject malformed/coerced values rather than guessing intent.
-- Post-pull command trust:
-  - `post_pull_steps` is intentionally explicit but still privileged. Reviewers
-    should treat changes there as trusted-maintainer execution, not a casual
-    convenience surface.
-- Wrapper / bin-dir interception:
-  - repo-root wrappers and future user-bin shims sit on the command-dispatch
-    boundary. PATH/bin-dir precedence and interpreter fallback behavior should
-    be reviewed as an authority surface, not only a UX concern.
-
 ## Replay / Drift Checks (expected for revalidation)
 
 - Confirm all user-facing entrypoints route to `busy_installer.app`.
 - Confirm all user-facing entrypoints bootstrap the repo-local `.venv` before app launch.
 - Confirm manifest-driven wrapper policy is honored by all platform entrypoints.
-- Confirm spec references still match the current security-critical modules:
-  - `busy_installer/core/config.py`
-  - `busy_installer/core/runner.py`
-  - `busy_installer/platform/launcher.py`
-  - `busy_installer/platform/management_bootstrap.py`
 - Verify maintenance-first default behavior:
   - no-arg user entrypoints invoke `repair`
   - explicit `install` / `repair` / `status` / `clean` remain available
