@@ -98,6 +98,18 @@ def test_management_local_binding_accepts_local_machine_ip(monkeypatch: pytest.M
     )
 
 
+def test_management_local_binding_accepts_local_ipv6_literal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(launcher, "_local_machine_addresses", lambda: frozenset({"127.0.0.1", "::1"}))
+
+    binding = launcher._management_local_binding("http://[::1]:8031/admin")
+
+    assert binding == launcher.ManagementLocalBinding(
+        bind_host="::1",
+        health_host="::1",
+        port=8031,
+    )
+
+
 def test_management_local_binding_rejects_remote_host(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(launcher, "_local_machine_names", lambda: frozenset({"localhost", "sam-laptop"}))
     monkeypatch.setattr(launcher, "_local_machine_addresses", lambda: frozenset({"127.0.0.1", "::1"}))
@@ -470,6 +482,14 @@ wrappers:
     assert opened == ["OPEN:http://127.0.0.1:8031/admin"]
 
 
+def test_browser_management_url_normalizes_wildcard_host() -> None:
+    assert launcher._browser_management_url("http://0.0.0.0:8031/admin") == "http://127.0.0.1:8031/admin"
+
+
+def test_browser_management_url_preserves_local_ipv6_literal() -> None:
+    assert launcher._browser_management_url("http://[::1]:8031/admin") == "http://[::1]:8031/admin"
+
+
 def test_run_management_bootstrap_honors_manifest_repo_local_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -816,3 +836,9 @@ def test_platform_wrapper_scripts_target_app_entrypoint() -> None:
     assert ".venv/bin/python" in linux
     assert ".venv/bin/python" in macos
     assert ".venv\\Scripts\\python.exe" in windows
+    assert "\"${BOOTSTRAP_PYTHON}\" \"${BOOTSTRAP}\"" in linux
+    assert "\"${BOOTSTRAP_PYTHON}\" \"${BOOTSTRAP}\"" in macos
+    assert "bootstrap completed but ${VENV_PYTHON} is missing." in linux
+    assert "bootstrap completed but ${VENV_PYTHON} is missing." in macos
+    assert "if ($LASTEXITCODE -ne 0)" in windows
+    assert "exit $LASTEXITCODE" in windows

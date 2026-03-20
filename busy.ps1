@@ -18,7 +18,11 @@ if (-not $python) {
 }
 
 & $python $Bootstrap | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
 if (-not (Test-Path $VenvPython)) {
   throw "bootstrap completed but $VenvPython is missing."
 }
 & $VenvPython -m busy_installer.app @args
+exit $LASTEXITCODE

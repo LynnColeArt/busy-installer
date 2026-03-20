@@ -14,7 +14,7 @@ else
   exit 1
 fi
 
-${BOOTSTRAP_PYTHON} "${BOOTSTRAP}" > /dev/null
+"${BOOTSTRAP_PYTHON}" "${BOOTSTRAP}" > /dev/null
 if [[ ! -x "${VENV_PYTHON}" ]]; then
   echo "bootstrap completed but ${VENV_PYTHON} is missing." >&2
   exit 1

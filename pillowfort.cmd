@@ -23,9 +23,11 @@ if exist "%VENV_PYTHON%" (
 )
 
 "%PYTHON%" "%BOOTSTRAP%" >nul
+if errorlevel 1 exit /b %errorlevel%
 if not exist "%VENV_PYTHON%" (
   echo bootstrap completed but %VENV_PYTHON% is missing. 1>&2
   exit /b 1
 )
 
 "%VENV_PYTHON%" -m busy_installer.app %*
+exit /b %errorlevel%

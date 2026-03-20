@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 from busy_installer.app import main as app_main
+from busy_installer.cli import _default_manifest
 
 
 def _repo_root() -> Path:
@@ -15,7 +16,7 @@ def _repo_root() -> Path:
 
 def main() -> int:
     root = _repo_root()
-    manifest = root / "docs" / "installer-manifest.yaml"
+    manifest = _default_manifest()
 
     with tempfile.TemporaryDirectory(prefix="busy-installer-smoke-") as tmp:
         workspace = Path(tmp) / "workspace"

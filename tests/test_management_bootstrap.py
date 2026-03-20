@@ -220,6 +220,30 @@ def test_bootstrap_management_supports_distinct_health_host(tmp_path: Path, monk
     assert payload["health_url"] == "http://127.0.0.1:8031/api/health"
 
 
+def test_management_bootstrap_brackets_ipv6_hosts_in_runtime_metadata(tmp_path: Path) -> None:
+    workspace, busy_root, management_root = _create_workspace(tmp_path)
+    log_path = management_bootstrap._runtime_log_path(workspace)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.touch()
+
+    metadata_path = management_bootstrap._write_runtime_metadata(
+        workspace=workspace,
+        busy_root=busy_root,
+        management_root=management_root,
+        host="::1",
+        health_host="::1",
+        port=8031,
+        log_path=log_path,
+        payload={"status": "ok", "service": "busy38-management-ui"},
+        pid=12345,
+        reused=False,
+    )
+
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert payload["url"] == "http://[::1]:8031/"
+    assert payload["health_url"] == "http://[::1]:8031/api/health"
+
+
 def test_bootstrap_management_fails_when_spawned_process_exits_early(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace, busy_root, management_root = _create_workspace(tmp_path)
 

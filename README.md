@@ -49,7 +49,9 @@ Repo-local Windows front doors are also available as `pf.cmd`,
 
 The repo-local `.venv` bootstrap is wrapper-owned. Installed console scripts run
 inside the interpreter/environment where `pillowfort-installer` was installed;
-they do not create a repo-local `.venv`.
+they do not create a repo-local `.venv`. The installed `pf` / `busy` /
+`pillowfort` console entrypoints now also ship the bundled manifest instead of
+depending on a repo-relative `docs/` path that is absent from wheels.
 
 Use the repo bootstrap directly when you want a dev/test environment:
 
@@ -89,7 +91,7 @@ needed, then run the same high-level `busy` / `pillowfort` app path.
 Optional environment controls:
 
 - `BUSY_INSTALL_DIR` (install target directory, default: `~/pillowfort`)
-- `BUSY_INSTALL_MANIFEST` (manifest override path; default: `docs/installer-manifest.yaml`)
+- `BUSY_INSTALL_MANIFEST` (manifest override path; default: the bundled installer manifest shipped with the package/repo)
 - `BUSY_INSTALL_STRICT_SOURCE=1` (enforce canonical symlink mapping)
 - `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` (permit copied adapter mounts when symlinks unavailable)
 - `MANIFEST_UI_OPEN=1` (open local web UI when available)
@@ -189,6 +191,11 @@ Management is now installer-owned too:
 - launcher resolves the Busy core and management UI checkout roots from the
   manifest repository `local_path` entries, so custom manifest layouts still
   bootstrap the correct management checkout before browser open
+- wildcard management URLs such as `http://0.0.0.0:8031/admin` are normalized
+  to a browser-reachable loopback URL before launch, while installer ownership
+  checks still probe the same local runtime
+- management runtime metadata and health probes now bracket accepted local IPv6
+  literals correctly with RFC 3986 host brackets
 
 The installer engine supports symlink-first source-of-truth enforcement:
 

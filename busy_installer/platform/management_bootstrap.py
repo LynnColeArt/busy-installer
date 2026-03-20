@@ -51,8 +51,14 @@ def _database_path(workspace: Path) -> Path:
     return _runtime_dir(workspace) / "management.db"
 
 
+def _http_host_literal(host: str) -> str:
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
+
 def _health_url(host: str, port: int) -> str:
-    return f"http://{host}:{int(port)}/api/health"
+    return f"http://{_http_host_literal(host)}:{int(port)}/api/health"
 
 
 def _read_runtime_metadata(workspace: Path) -> dict[str, Any] | None:
@@ -166,7 +172,7 @@ def _write_runtime_metadata(
     runtime_dir = _runtime_dir(workspace)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     metadata = {
-        "url": f"http://{host}:{int(port)}/",
+        "url": f"http://{_http_host_literal(host)}:{int(port)}/",
         "health_url": _health_url(health_host, port),
         "workspace": str(workspace),
         "busy_root": str(busy_root),

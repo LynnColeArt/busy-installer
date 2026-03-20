@@ -18,6 +18,9 @@ pillowfort-installer = "busy_installer.cli:main"
 [tool.setuptools.packages.find]
 include = ["busy_installer*"]
 
+[tool.setuptools.package-data]
+busy_installer = ["_bundled/*.yaml"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

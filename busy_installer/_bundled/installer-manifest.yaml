@@ -1,0 +1,89 @@
+version: "1.0"
+description: "Pillowfort bootstrap manifest"
+workspace:
+  path: "./pillowfort-workspace"
+  preserve_on_failure: true
+repositories:
+  - name: busy38-core
+    url: "https://github.com/LynnColeArt/Busy.git"
+    branch: "main"
+    local_path: "busy-38-ongoing"
+    required: true
+    post_pull_steps:
+      - "python -m pip install -r requirements.txt"
+  - name: busy38-discord
+    url: "https://github.com/LynnColeArt/busy38-discord.git"
+    branch: "main"
+    local_path: "busy38-discord"
+    required: false
+  - name: busy38-telegram
+    url: "https://github.com/LynnColeArt/busy38-telegram.git"
+    branch: "main"
+    local_path: "busy38-telegram"
+    required: false
+  - name: busy38-gticket
+    url: "https://github.com/LynnColeArt/busy38-gticket.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-gticket"
+    required: true
+  - name: busy38-doc-ingest
+    url: "https://github.com/LynnColeArt/busy38-doc-ingest.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-doc-ingest"
+    required: true
+  - name: busy38-management-ui
+    url: "https://github.com/LynnColeArt/busy38-management-ui.git"
+    branch: "fix/installer-management-ui-root"
+    local_path: "busy-38-ongoing/vendor/busy-38-management-ui"
+    required: true
+    post_pull_steps:
+      - "python -m pip install -r backend/requirements.txt"
+  - name: RangeWriter4-a
+    url: "https://github.com/LynnColeArt/rangewriter.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-rangewriter"
+    required: true
+    canonical_only: true
+  - name: Blossom
+    url: "https://github.com/LynnColeArt/blossom.git"
+    branch: "main"
+    local_path: "busy-38-ongoing/vendor/busy-38-blossom"
+    required: true
+    canonical_only: true
+
+source_of_truth:
+  allow_copy_fallback: false
+  entries:
+    - name: RangeWriter4-a
+      canonical_path: "~/projects/RangeWriter4-a"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
+      required: false
+    - name: Blossom
+      canonical_path: "~/projects/blossom"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-blossom"
+      required: false
+    - name: GTicket
+      canonical_path: "~/projects/busy-38-gticket"
+      adapter_mount: "busy-38-ongoing/vendor/busy-38-gticket"
+      required: false
+
+provider_catalog:
+  enabled: true
+  required: false
+  url: "https://docs.pillowfort.ai/provider-catalog.json"
+  cache_path: "provider_catalog.json"
+  fallback_path: "provider-catalog.json"
+  timeout_seconds: 6
+
+models: []
+
+wrappers:
+  open_management_on_complete: true
+  onboarding_url: "http://127.0.0.1:8093"
+  management_url: "http://127.0.0.1:8031"
+
+workflows:
+  onboarding:
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093"
+  smoke:
+    command: "python -m busy_installer.platform.onboarding_bootstrap --workspace . --busy-root busy-38-ongoing --host 127.0.0.1 --port 8093 --check-only"

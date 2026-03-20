@@ -8,7 +8,7 @@ import socket
 import subprocess
 import sys
 import json
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -31,7 +31,7 @@ def _repo_root() -> Path:
 
 
 def _default_manifest_path() -> Path:
-    return _repo_root() / "docs" / "installer-manifest.yaml"
+    return _repo_root() / "busy_installer" / "_bundled" / "installer-manifest.yaml"
 
 
 def _read_bool(name: str, default: bool = False) -> bool:
@@ -233,6 +233,29 @@ def _resolve_workspace_repo_path(workspace: Path, local_path: str) -> Path:
     if candidate.is_absolute():
         return candidate.resolve()
     return (workspace / candidate).resolve()
+
+
+def _url_netloc_host(host: str) -> str:
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
+
+def _browser_management_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    binding = _management_local_binding(url)
+    if binding is None:
+        return url
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").strip().lower().rstrip(".")
+    if hostname not in {"0.0.0.0", "::", "0:0:0:0:0:0:0:0"}:
+        return url
+    port = parsed.port
+    netloc = _url_netloc_host(binding.health_host)
+    if port is not None:
+        netloc = f"{netloc}:{int(port)}"
+    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def _bootstrap_management_surface(config: "LauncherConfig") -> Path | None:
@@ -628,6 +651,7 @@ def run(argv: list[str] | None = None) -> int:
                 with log_path.open("a", encoding="utf-8") as handle:
                     handle.write(f"[launcher] management runtime ready: {metadata_path}\n")
                 _user_message("Management runtime ready.")
+            target_url = _browser_management_url(target_url)
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(f"[launcher] opening {surface_name} URL: {target_url}\n")
         _user_message(f"Opening {surface_name}: {target_url}")

@@ -9,8 +9,8 @@ from .core.runner import InstallFailure, InstallerEngine
 
 
 def _default_manifest() -> Path:
-    here = Path(__file__).resolve().parent.parent
-    return here / "docs" / "installer-manifest.yaml"
+    here = Path(__file__).resolve().parent
+    return here / "_bundled" / "installer-manifest.yaml"
 
 
 def make_parser() -> argparse.ArgumentParser:

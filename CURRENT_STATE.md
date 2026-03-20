@@ -2,6 +2,12 @@
 
 ## 2026-03-19
 
+- Installed console entrypoints now ship the bundled manifest explicitly:
+  - the default manifest path now resolves to
+    `busy_installer/_bundled/installer-manifest.yaml`
+  - `pyproject.toml` now includes that YAML as package data so wheel installs of
+    `pf`, `busy`, and `pillowfort` still have a real bundled manifest instead
+    of failing on a missing repo-relative `docs/installer-manifest.yaml`
 - Launcher-owned management bootstrap now honors manifest checkout layout:
   - when onboarding state is `ACTIVE`, launcher resolves the Busy core and
     management UI roots from the manifest repository `local_path` entries
@@ -19,6 +25,17 @@
 - Windows `.cmd` wrappers now try `python3` first and then bare `python` before
   failing, matching typical Windows Python installs that ship `python.exe`
   without `python3.exe`
+- Repo and platform wrappers now fail closed on bootstrap execution:
+  - Unix wrappers quote the selected bootstrap interpreter so repo paths with
+    spaces do not split into multiple shell words
+  - Windows `.cmd` / PowerShell wrappers now stop immediately if
+    `bootstrap_env.py` fails and propagate the child exit code instead of
+    continuing into a stale `.venv`
+- Browser-open management URLs now normalize wildcard local binds before open,
+  so `http://0.0.0.0:8031/...` probes the local runtime via loopback and opens
+  a browser-reachable loopback URL instead of a non-routable wildcard address.
+- Management runtime metadata and health probes now bracket accepted local IPv6
+  literals correctly when composing HTTP URLs.
 
 ## 2026-03-17
 
