@@ -1,7 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Root = Resolve-Path "$ScriptPath\..\..\.."
+$Root = Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $VenvPython = Join-Path $Root.Path ".venv\Scripts\python.exe"
 $Bootstrap = Join-Path $Root.Path "scripts\bootstrap_env.py"
 
@@ -25,7 +24,5 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path $VenvPython)) {
   throw "bootstrap completed but $VenvPython is missing."
 }
-
-$env:PYTHONPATH = "$($Root.Path)$([System.IO.Path]::PathSeparator)$env:PYTHONPATH".TrimEnd([System.IO.Path]::PathSeparator)
 & $VenvPython -m busy_installer.app @args
 exit $LASTEXITCODE

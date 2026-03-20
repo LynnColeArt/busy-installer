@@ -333,7 +333,10 @@ workflows: {}
     payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
     provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
     assert provider_step["status"] == "warning"
-    assert "failed validation" in provider_step["message"]
+    details = provider_step["details"]
+    assert details["candidate_errors"]
+    assert any("failed validation" in item for item in details["candidate_errors"])
+    assert provider_step["message"] == "No valid provider catalog source available; continuing without catalog update."
 
 
 def test_provider_catalog_validation_fails_required_without_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -405,6 +408,129 @@ workflows: {}
     payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
     provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
     assert provider_step["status"] == "warning"
+
+
+def test_provider_catalog_uses_manifest_fallback_when_remote_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "."
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  required: true
+  url: "https://example.invalid/provider-catalog.json"
+  fallback_path: "provider-catalog-fallback.json"
+  cache_path: "state/provider-catalog.json"
+workflows: {}
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "provider-catalog-fallback.json").write_text(
+        json.dumps({"providers": [{"id": "ollama", "name": "Ollama", "models": []}]}),
+        encoding="utf-8",
+    )
+
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    engine = InstallerEngine(manifest=manifest, workspace=workspace)
+
+    monkeypatch.setattr(
+        "busy_installer.core.runner.InstallerEngine._fetch_provider_catalog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("network down")),
+    )
+
+    engine.run(include_models=False)
+
+    payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
+    provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
+    assert provider_step["status"] == "warning"
+    assert provider_step["message"] == "Using manifest fallback provider catalog"
+    assert provider_step["details"]["source"] == "fallback"
+    assert provider_step["details"]["candidate_errors"] == ["remote: network down"]
+    assert (workspace / "state" / "provider-catalog.json").exists()
+
+
+def test_provider_catalog_fallback_without_remote_still_warns(tmp_path: Path) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "."
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  required: true
+  fallback_path: "provider-catalog-fallback.json"
+  cache_path: "state/provider-catalog.json"
+workflows: {}
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "provider-catalog-fallback.json").write_text(
+        json.dumps({"providers": [{"id": "ollama", "name": "Ollama", "models": []}]}),
+        encoding="utf-8",
+    )
+
+    manifest = InstallerManifest.from_path(manifest_file)
+    workspace = tmp_path / "workspace"
+    engine = InstallerEngine(manifest=manifest, workspace=workspace)
+
+    engine.run(include_models=False)
+
+    payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
+    provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
+    assert provider_step["status"] == "warning"
+    assert provider_step["message"] == "Using manifest fallback provider catalog"
+    assert provider_step["details"]["source"] == "fallback"
+    assert "candidate_errors" not in provider_step["details"]
+    assert (workspace / "state" / "provider-catalog.json").exists()
+
+
+def test_provider_catalog_fails_required_when_all_sources_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest_file = tmp_path / "manifest.yaml"
+    manifest_file.write_text(
+        """
+version: "1.0"
+workspace:
+  path: "."
+repositories: []
+models: []
+provider_catalog:
+  enabled: true
+  required: true
+  url: "https://example.invalid/provider-catalog.json"
+  fallback_path: "provider-catalog-fallback.json"
+  cache_path: "state/provider-catalog.json"
+workflows: {}
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "provider-catalog-fallback.json").write_text(
+        json.dumps("invalid", separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    manifest = InstallerManifest.from_path(manifest_file)
+    engine = InstallerEngine(manifest=manifest, workspace=tmp_path / "workspace")
+
+    monkeypatch.setattr(
+        "busy_installer.core.runner.InstallerEngine._fetch_provider_catalog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("network down")),
+    )
+
+    with pytest.raises(InstallFailure):
+        engine.run(include_models=False)
+
+    payload = json.loads(engine.state.file_path.read_text(encoding="utf-8"))
+    provider_step = next(step for step in reversed(payload["steps"]) if step["name"] == "provider_catalog")
+    assert provider_step["status"] == "failed"
+    assert "provider catalog unavailable" in provider_step["message"]
 
 
 def test_model_artifact_source_can_copy_from_local_path(tmp_path: Path) -> None:

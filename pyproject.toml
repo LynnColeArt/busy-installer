@@ -6,8 +6,20 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["pyyaml"]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.scripts]
+busy = "busy_installer.app:main"
+pf = "busy_installer.app:main"
+pillowfort = "busy_installer.app:main"
 pillowfort-installer = "busy_installer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["busy_installer*"]
+
+[tool.setuptools.package-data]
+busy_installer = ["_bundled/*.yaml"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
