@@ -31,13 +31,6 @@ repositories:
     branch: "main"
     local_path: "busy-38-ongoing/vendor/busy-38-doc-ingest"
     required: true
-  - name: busy38-management-ui
-    url: "https://github.com/LynnColeArt/busy38-management-ui.git"
-    branch: "fix/installer-management-ui-root"
-    local_path: "busy-38-ongoing/vendor/busy-38-management-ui"
-    required: true
-    post_pull_steps:
-      - "python -m pip install -r backend/requirements.txt"
   - name: RangeWriter4-a
     url: "https://github.com/LynnColeArt/rangewriter.git"
     branch: "main"
@@ -57,25 +50,30 @@ source_of_truth:
     - name: RangeWriter4-a
       canonical_path: "~/projects/RangeWriter4-a"
       adapter_mount: "busy-38-ongoing/vendor/busy-38-rangewriter"
-      required: false
+      required: true
     - name: Blossom
       canonical_path: "~/projects/blossom"
       adapter_mount: "busy-38-ongoing/vendor/busy-38-blossom"
-      required: false
+      required: true
     - name: GTicket
       canonical_path: "~/projects/busy-38-gticket"
       adapter_mount: "busy-38-ongoing/vendor/busy-38-gticket"
-      required: false
+      required: true
 
 provider_catalog:
   enabled: true
   required: false
   url: "https://docs.pillowfort.ai/provider-catalog.json"
   cache_path: "provider_catalog.json"
-  fallback_path: "provider-catalog.json"
   timeout_seconds: 6
 
-models: []
+models:
+  - name: qwen3-0.6b
+    provider: ollama
+    target_path: "models/qwen3-0.6b"
+    files:
+      - source: "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0_6b-q2_k.gguf"
+        checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 wrappers:
   open_management_on_complete: true

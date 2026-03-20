@@ -18,55 +18,8 @@ or developer-only.
 ## Quick start
 
 ```bash
-./pillowfort
-./pf
-./busy
-```
-
-That single command bootstraps the repo-local `.venv` if needed, refreshes it
-when the repo bootstrap inputs change, runs the maintenance-first installer
-flow, and opens the correct first-run surface for the current workspace.
-
-The command line stays intentionally quiet, but it does surface:
-
-- the active workspace path
-- whether setup/maintenance succeeded
-- the exact recovery command and log path on failure
-- the exact onboarding or management URL when a browser needs to be opened or
-  reopened manually
-
-Installed console entrypoints also expose the same maintenance-first app
-behavior once the package is installed into an environment:
-
-```bash
-pf
-pillowfort
-busy
-```
-
-Repo-local Windows front doors are also available as `pf.cmd`,
-`pillowfort.cmd`, `busy.cmd`, `pf.ps1`, `pillowfort.ps1`, and `busy.ps1`.
-
-The repo-local `.venv` bootstrap is wrapper-owned. Installed console scripts run
-inside the interpreter/environment where `pillowfort-installer` was installed;
-they do not create a repo-local `.venv`.
-
-Use the repo bootstrap directly when you want a dev/test environment:
-
-```bash
-python3 scripts/bootstrap_env.py --dev
-. .venv/bin/activate
-```
-
-`scripts/bootstrap_env.py` is now idempotent for unchanged inputs: once
-`.venv` is prepared, repeat wrapper launches reuse it until `pyproject.toml` or
-`requirements-dev.lock` changes, or until `--dev` is explicitly requested.
-
-Run tests and the bundled-manifest smoke check from that venv:
-
-```bash
-python -m pytest -q
-python scripts/smoke_manifest.py
+python -m pip install -e .
+pillowfort-installer install --manifest docs/installer-manifest.yaml
 ```
 
 ## Branching
@@ -83,9 +36,6 @@ cd /path/to/busy-installer
 ./busy_installer/platform/linux/launcher.sh
 ```
 
-The platform launchers bootstrap the repo-local `.venv` automatically when
-needed, then run the same high-level `busy` / `pillowfort` app path.
-
 Optional environment controls:
 
 - `BUSY_INSTALL_DIR` (install target directory, default: `~/pillowfort`)
@@ -94,7 +44,7 @@ Optional environment controls:
 - `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` (permit copied adapter mounts when symlinks unavailable)
 - `MANIFEST_UI_OPEN=1` (open local web UI when available)
 - `BUSY_INSTALL_ONBOARDING_URL` (override `onboarding_url` from manifest `wrappers`)
-- `BUSY_INSTALL_MANAGEMENT_URL` (override `management_url` from manifest `wrappers` when it still targets this machine, such as `localhost`, `127.0.0.1`, `0.0.0.0`, or this machine's hostname/IP)
+- `BUSY_INSTALL_MANAGEMENT_URL` (override `management_url` from manifest `wrappers`)
 - `BUSY_INSTALL_SKIP_MODELS=1` (skip model staging during install/re-install)
 
 The launcher runs the local checkout directly and writes logs to
@@ -146,14 +96,7 @@ Post-install browser routing is onboarding-first:
 - once onboarding reaches `ACTIVE`, the launcher opens the management surface.
 
 Browser-open failures are logged but do not turn a successful install/repair
-into a failed launcher exit. Management bootstrap failures are different: if
-the installer cannot bring up the local management surface that owns
-`http://127.0.0.1:8031`, launcher exits non-zero instead of opening a dead URL.
-
-When possible, the launcher brings the relevant browser surface to the
-foreground instead of just printing a URL. On macOS it also makes a best-effort
-attempt to focus an already-open matching tab in supported browsers before
-opening a new one.
+into a failed launcher exit.
 
 The bundled manifest now uses explicit installer-owned workflow commands:
 
@@ -172,28 +115,9 @@ bare `python` shim. The onboarding bootstrap command launches the vendored web
 app as a detached background process, then returns only after the local HTTP
 surface is reachable.
 
-Management is now installer-owned too:
+Source-of-truth enforcement is now symlink-first by default:
 
-- the bundled manifest syncs `busy38-management-ui` into
-  `busy-38-ongoing/vendor/busy-38-management-ui`
-- until the same-origin browser-root fix is merged on the default
-  `busy38-management-ui` branch, the bundled manifest pins that repo to the
-  reviewed `fix/installer-management-ui-root` branch so fresh installs remain
-  self-consistent
-- repo sync installs the management backend requirements into the active
-  launcher interpreter with
-  `python -m pip install -r backend/requirements.txt`
-- once onboarding state is `ACTIVE`, launcher bootstraps the local management
-  runtime, waits for `GET /api/health` on `127.0.0.1:8031`, and only then opens
-  the management browser surface
-- launcher resolves the Busy core and management UI checkout roots from the
-  manifest repository `local_path` entries, so custom manifest layouts still
-  bootstrap the correct management checkout before browser open
-
-The installer engine supports symlink-first source-of-truth enforcement:
-
-- when source bindings are marked required or `BUSY_INSTALL_STRICT_SOURCE=1` is
-  enabled, adapter mounts are remounted to canonical symlinks during install
+- required source bindings are remounted to canonical symlinks during install
   and repair,
 - copied adapter mounts are only accepted when
   `BUSY_INSTALL_ALLOW_COPY_FALLBACK=1` or the equivalent manifest policy is
@@ -201,10 +125,6 @@ The installer engine supports symlink-first source-of-truth enforcement:
 - when explicit copy fallback is enabled and symlink creation fails, installer
   now refreshes the adapter mount from the canonical repo contents instead of
   leaving a placeholder directory behind.
-
-The bundled manifest keeps those canonical bindings optional so a brand-new
-machine does not need pre-existing `~/projects/*` checkouts before the first
-`./pillowfort` or `busy` run.
 
 Onboarding bootstrap also fails closed on workspace ownership:
 
@@ -226,26 +146,23 @@ Run the platform-native entrypoints for a wrapped launch flow:
 ./busy_installer/platform/windows/launcher.ps1
 ```
 
-Both shell entrypoints route through the same high-level app entrypoint, so behavior is identical:
+Both shell entrypoints route through `busy_installer.platform.launcher` so behavior is identical:
 
-- dependency bootstrap into the repo-local `.venv`
-- maintenance-first command routing (`repair` by default, explicit `install` / `status` / `clean` when requested)
 - manifest-driven config and workspace resolution
-- one-click wrapped onboarding/management browser open when manifest/ENV policy enables it
+- command pass-through support (`install`, `repair`, `status`, `clean`, and passthrough args)
+- one-click wrapped management URL open when manifest/ENV policy enables it
 
 ```bash
 # equivalent explicit mode from the installer repo root
-python -m busy_installer.app
+python -m busy_installer.platform.launcher install
 ```
 
-### Required plugin bootstrap binding checklist
+### Required repositories
 
-This checklist is scoped to the bundled installer bootstrap flow, not to every
-repo or plugin Busy may treat as required in other runtime contexts. If one of
-these manifest-owned bootstrap repos or plugin sources fails to sync or mount,
-install must fail closed.
+The installer manifest marks required repos with `required: true`. If a required
+repo fails to sync, the install fails.
 
-The current manifest-owned bootstrap repository set includes:
+The current manifest-required repository set includes:
 - `busy38-core`
 - `busy38-gticket`
 - `busy38-doc-ingest` (mandatory during onboarding/document ingestion setup; adapter mount remains `vendor/busy-38-doc-ingest`)
@@ -264,21 +181,14 @@ provider_catalog:
   required: false
   url: "https://docs.pillowfort.ai/provider-catalog.json"
   cache_path: "provider_catalog.json"
-  fallback_path: "provider-catalog.json"
   timeout_seconds: 6
 ```
 
-When enabled, the installer will sync provider metadata before repository cloning.
+When enabled, the installer will download and cache provider metadata before cloning repositories.
 
-If remote fetch fails, the installer will validate and use the configured
-`fallback_path` before trying cache, then fall back to existing cache.
-Fallback artifacts are resolved relative to the manifest file location.
+If `required: true`, a missing/failed catalog fetch aborts the install unless a valid local cache exists.
 
-If `required: true`, install fails only when all sources (remote, fallback, and cache)
-are unavailable or invalid.
-
-If a non-remote source is used (fallback or cache), the step remains successful but
-is reported as a warning.
+If the request fails and the cache already exists, the engine falls back to cache and continues.
 
 Run the CLI in dry-run mode to preview all steps:
 
@@ -286,20 +196,14 @@ Run the CLI in dry-run mode to preview all steps:
 pillowfort-installer install --manifest docs/installer-manifest.yaml --dry-run
 ```
 
-The bundled manifest does not stage any default model artifacts. Add model
-entries to the manifest only when you have real artifact URLs and checksums to
-enforce.
-
-Manifest-owned authority fields fail closed. Use literal YAML booleans (or
-explicit `0` / `1`) for flags such as `required`, `enabled`, and
-`allow_copy_fallback`. Invalid boolean-like strings and malformed
-`post_pull_steps` values now fail manifest load instead of relying on Python
-truthiness or implicit coercion.
+For the current bundled manifest, local validation should also pass
+`--skip-models` or set `BUSY_INSTALL_SKIP_MODELS=1` until the example model
+checksum is replaced with a real artifact checksum.
 
 ## Commands
 
-- `repair`: maintenance-first workflow; resumes failed installs when needed and otherwise revalidates/syncs the existing workspace
-- `install`: explicit fresh-install style workflow
+- `install`: execute bootstrap workflow
+- `repair`: rerun from the last failing step
 - `status`: print persisted install state
 - `clean`: remove generated install state/reports
 
