@@ -15,8 +15,8 @@ This repo assumes extremely capable reviewers (including adversarial ones). Code
   implementation.
 - Never push directly to `main`.
 - Use a branch-only strategy. Branch names should be descriptive and concise.
-- All changes must go through a pull request and be reviewed by Lynn and/or
-  Sam.
+- All changes must go through a pull request and receive review according to
+  the repository's current ownership and review policy.
 
 ---
 
